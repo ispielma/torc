@@ -1,4 +1,4 @@
-# import PyQt4
+import PyQt4
 import numpy as np
 from scipy.special import ellipk, ellipe
 from scipy.constants import mu_0
@@ -6,7 +6,7 @@ from scipy.constants import mu_0
 pi = np.pi
 
 import matplotlib.pyplot as plt
-# from mayavi.mlab import mesh, show
+from mayavi.mlab import mesh, plot3d, show
 
 
 def get_factors(n):
@@ -91,27 +91,27 @@ def field_of_current_line(r, z, L, I):
 
 
 class CurrentObject(object):
-    def __init__(self, r0, zprime, yprime=None, n_turns=1):
+    def __init__(self, r0, zprime, xprime=None, n_turns=1):
         """A current-carrying object with a coordinate system centred at position r0 =
         (x0, y0, z0), with primary axis pointing along zprime = (zprime_x, zprime_y,
-        zprime_z) and secondary axis pointing along yprime = (yprime_x, yprime_y,
-        yprime_z). These two axes define the orientation of a right handed coordinate
+        zprime_z) and secondary axis pointing along xprime = (xprime_x, xprime_y,
+        xprime_z). These two axes define the orientation of a right handed coordinate
         system (xprime, yprime, zprime) for the object with respect to the lab
         coordinate directions (x, y, z). The two axes do not need to be normalised (they
-        will be normalised automatically), but must be orthogonal. if yprime is None
+        will be normalised automatically), but must be orthogonal. if xprime is None
         (perhaps if the object has rotational symmetry such that it doesn't matter), it
-        will be chosen randomly. n_turns is an overall multiplier for the current"""
+        will be chosen randomly. n_turns is an overall multiplier for the current."""
         self.r0 = np.array(r0)
         self.zprime = np.array(zprime) / np.sqrt(np.dot(zprime, zprime))
-        if yprime is None:
+        if xprime is None:
             # A random vector that is orthogonal to zprime:
-            yprime = np.cross(np.random.randn(3), zprime)
-        self.yprime = np.array(yprime) / np.sqrt(np.dot(yprime, yprime))
+            xprime = np.cross(np.random.randn(3), zprime)
+        self.xprime = np.array(xprime) / np.sqrt(np.dot(xprime, xprime))
 
-        if not abs(np.dot(self.yprime, self.zprime)) < 1e-10:
+        if not abs(np.dot(self.xprime, self.zprime)) < 1e-10:
             raise ValueError("Primary and secondary axes of object not orthogonal")
 
-        self.xprime = np.cross(self.yprime, self.zprime)
+        self.yprime = np.cross(self.zprime, self.xprime)
 
         # Rotation matrix from local frame to lab frame, and its inverse
         self.Q_rot = np.stack([self.xprime, self.yprime, self.zprime], axis=1)
@@ -152,13 +152,33 @@ class CurrentObject(object):
         rprime = self.pos_to_local(r)
         return self.vector_to_lab(self.B_local(rprime, I * self.n_turns))
 
+    def surfaces(self):
+        return [self.pos_to_lab(pts) for pts in self.local_surfaces()]
+
+    def lines(self):
+        return [self.pos_to_lab(pts) for pts in self.local_paths()]
+
     def local_surfaces(self):
         return []
 
+    def local_paths(self):
+        return []
+
+    def show(self, surfaces=False, **kwargs):
+        if surfaces:
+            surfaces = self.surfaces()
+            for x, y, z in surfaces:
+                mesh(x, y, z, **kwargs)
+        lines = self.lines()
+        for x, y, z in lines:
+            plot3d(x, y, z)
+        
+        show()
+
 
 class Container(CurrentObject):
-    def __init__(self, r0=(0, 0, 0), zprime=(0, 0, 1), yprime=None):
-        super().__init__(r0=r0, zprime=zprime, yprime=yprime)
+    def __init__(self, r0=(0, 0, 0), zprime=(0, 0, 1), xprime=None):
+        super().__init__(r0=r0, zprime=zprime, xprime=xprime)
         self.children = []
 
     def add(self, child):
@@ -174,13 +194,17 @@ class Container(CurrentObject):
             Bs.append(child.B(r, I))
         return sum(Bs)
 
-    def show(self, **kwargs):
-        surfaces = [self.pos_to_lab(pts) for pts in self.local_surfaces()]
+    def surfaces(self):
+        surfaces = super().surfaces()
         for child in self.children:
-            surfaces.extend(child.pos_to_lab(pts) for pts in child.local_surfaces())
-        for x, y, z in surfaces:
-            mesh(x, y, z, **kwargs)
-        show()
+            surfaces.extend(child.surfaces())
+        return surfaces
+
+    def lines(self):
+        lines = [self.pos_to_lab(pts) for pts in self.local_paths()]
+        for child in self.children:
+            lines.extend(child.lines())
+        return lines
 
 
 class Loop(CurrentObject):
@@ -202,6 +226,13 @@ class Loop(CurrentObject):
         B_yprime = B_rho * np.sin(phi)
         return np.array([B_xprime, B_yprime, B_zprime])
 
+    def local_paths(self):
+        theta = np.linspace(-pi, pi, 361)
+        xprime = self.R * np.cos(theta)
+        yprime = self.R * np.sin(theta)
+        zprime = 0
+        return [(xprime, yprime, zprime)]
+
 
 class Line(CurrentObject):
     def __init__(self, r0, r1, n_turns=1):
@@ -221,6 +252,36 @@ class Line(CurrentObject):
         B_xprime = - B_phi * np.sin(phi)
         B_yprime = B_phi * np.cos(phi)
         return np.array([B_xprime, B_yprime, np.zeros_like(B_xprime)])
+
+    def local_paths(self):
+        zprime = np.linspace(0, self.L)
+        xprime = yprime = 0
+        return [(xprime, yprime, zprime)]
+
+
+class Arc(Container, CurrentObject):
+    def __init__(self, r0, n, n_perp, R, phi_0, phi_1, n_turns=1, n_seg=12):
+        """Current arc forming part of a loop centred at r0 with normal vector n, from
+        angle theta_0 to theta_1 defined with respect to the direction n_perp, which
+        should be an axis perpendicular to n. Current is flowing from phi_0 to phi_1,
+        which if phi_0 < phi_1, is in the positive sense with respect to the normal
+        direction n. This arc will is constructed out of n_seg separate line segments,
+        so the accuracy can be increased by increasing n_seg."""
+        super().__init__(r0=r0, zprime=n, xprime=n_perp)
+
+        delta_phi = (phi_1 - phi_0) / n_seg
+        for i in range(n_seg):
+            phi_seg_start = phi_0 + i * delta_phi
+            phi_seg_stop = phi_0 + (i + 1) * delta_phi
+            xprime0 = R * np.cos(phi_seg_start)
+            yprime0 = R * np.sin(phi_seg_start)
+            xprime1 = R * np.cos(phi_seg_stop)
+            yprime1 = R * np.sin(phi_seg_stop)
+
+            r0_seg = self.pos_to_lab((xprime0, yprime0, 0))
+            r1_seg = self.pos_to_lab((xprime1, yprime1, 0))
+            self.add(Line(r0_seg, r1_seg, n_turns=self.n_turns))
+
 
 
 class RoundCoil(Container, CurrentObject):
@@ -267,15 +328,17 @@ class RoundCoil(Container, CurrentObject):
         return surfaces
 
 
-# if __name__ == '__main__':
-#     coil1 = RoundCoil((0, 0, 0), (0, 0, 1), 0.8, 1.2, 0.4, cross_sec_segs=12)
-#     coil2 = RoundCoil(
-#         (2, 0, 0), (0, 1, 1), 0.8 / 2, 1.2 / 2, 0.4 / 2, cross_sec_segs=12
-#     )
-#     container = Container()
-#     container.add(coil1)
-#     container.add(coil2)
-#     container.show()
+if __name__ == '__main__':
+    coil1 = RoundCoil((0, 0, 0), (0, 0, 1), 0.8, 1.2, 0.4, cross_sec_segs=12)
+    coil2 = RoundCoil(
+        (2, 0, 0), (0, 1, 1), 0.8 / 2, 1.2 / 2, 0.4 / 2, cross_sec_segs=12
+    )
+    arc = Arc((0,1,0), (0,0,1), (1, 0, 0), 1, 0, pi)
+    container = Container()
+    container.add(arc)
+    container.add(coil1)
+    container.add(coil2)
+    container.show()
 
 # x = np.linspace(-10, 10, 100)
 # y = 1
