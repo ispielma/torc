@@ -1,4 +1,4 @@
-import PyQt4
+# import PyQt4
 import numpy as np
 from scipy.special import ellipk, ellipe
 from scipy.constants import mu_0
@@ -6,7 +6,7 @@ from scipy.constants import mu_0
 pi = np.pi
 
 import matplotlib.pyplot as plt
-from mayavi.mlab import mesh, show
+# from mayavi.mlab import mesh, show
 
 
 def get_factors(n):
@@ -51,7 +51,9 @@ def _broadcast(r):
 
 
 def field_of_current_loop(r, z, R, I):
-    """Compute Br(r, z), Bz(r, z) of a current loop with current I and radius R"""
+    """Compute, in cylindrical coordinates, Br(r, z), Bz(r, z) of a current loop with
+    current I and radius R, centred at the origin with normal vector pointing in the z
+    direction"""
     k2 = 4 * r * R / (z ** 2 + (R + r) ** 2)
     E_k2 = ellipe(k2)
     K_k2 = ellipk(k2)
@@ -78,6 +80,16 @@ def field_of_current_loop(r, z, R, I):
     return B_r, B_z
 
 
+def field_of_current_line(r, z, L, I):
+    """compute, in cylindrical coordinates, B_phi(r, z) of a current-carrying straight
+    wire of length L running from the origin to z = L with current flowing in the +z
+    direction."""
+    prefactor = mu_0 * I / (4 * pi * r)
+    term1 = z / np.sqrt(r ** 2 + z ** 2)
+    term2 = (L - z) / np.sqrt(r ** 2 + (L - z) ** 2)
+    return prefactor * (term1 + term2)
+
+
 class CurrentObject(object):
     def __init__(self, r0, zprime, yprime=None, n_turns=1):
         """A current-carrying object with a coordinate system centred at position r0 =
@@ -96,7 +108,7 @@ class CurrentObject(object):
             yprime = np.cross(np.random.randn(3), zprime)
         self.yprime = np.array(yprime) / np.sqrt(np.dot(yprime, yprime))
 
-        if not np.isclose(np.dot(self.yprime, self.zprime), 0, atol=0.0):
+        if not abs(np.dot(self.yprime, self.zprime)) < 1e-10:
             raise ValueError("Primary and secondary axes of object not orthogonal")
 
         self.xprime = np.cross(self.yprime, self.zprime)
@@ -191,6 +203,26 @@ class Loop(CurrentObject):
         return np.array([B_xprime, B_yprime, B_zprime])
 
 
+class Line(CurrentObject):
+    def __init__(self, r0, r1, n_turns=1):
+        """Current line from r0 = (x0, y0, z0) to r1 = (x1, y1, z1) with current flowing
+        from the former to the latter"""
+        super().__init__(r0=r0, zprime=np.array(r1) - np.array(r0), n_turns=n_turns)
+        self.L = np.sqrt(((np.array(r1) - np.array(r0))**2).sum())
+
+    def B_local(self, rprime, I):
+        """Field due to the loop at position rprime=(xprime, yprime, zprime) for current
+        I"""
+        xprime, yprime, zprime = rprime
+        # Expression we need to call is in cylindrical coordinates:
+        rho = np.sqrt(xprime ** 2 + yprime ** 2)
+        B_phi = field_of_current_line(rho, zprime, self.L, I)
+        phi = np.arctan2(yprime, xprime)
+        B_xprime = - B_phi * np.sin(phi)
+        B_yprime = B_phi * np.cos(phi)
+        return np.array([B_xprime, B_yprime, np.zeros_like(B_xprime)])
+
+
 class RoundCoil(Container, CurrentObject):
     def __init__(
         self, r0, n, R_inner, R_outer, thickness, n_turns=1, cross_sec_segs=12
@@ -235,12 +267,25 @@ class RoundCoil(Container, CurrentObject):
         return surfaces
 
 
-if __name__ == '__main__':
-    coil1 = RoundCoil((0, 0, 0), (0, 0, 1), 0.8, 1.2, 0.4, cross_sec_segs=12)
-    coil2 = RoundCoil(
-        (2, 0, 0), (0, 1, 1), 0.8 / 2, 1.2 / 2, 0.4 / 2, cross_sec_segs=12
-    )
-    container = Container()
-    container.add(coil1)
-    container.add(coil2)
-    container.show()
+# if __name__ == '__main__':
+#     coil1 = RoundCoil((0, 0, 0), (0, 0, 1), 0.8, 1.2, 0.4, cross_sec_segs=12)
+#     coil2 = RoundCoil(
+#         (2, 0, 0), (0, 1, 1), 0.8 / 2, 1.2 / 2, 0.4 / 2, cross_sec_segs=12
+#     )
+#     container = Container()
+#     container.add(coil1)
+#     container.add(coil2)
+#     container.show()
+
+# x = np.linspace(-10, 10, 100)
+# y = 1
+# z = 1
+
+# B = field_of_current_line(x, y, z, 0,0,0,1, 1, 1, 1)
+
+# x, y, z  = np.random.randn(3)
+# x0, y0, z0  = np.random.randn(3)
+# x1, y1, z1  = np.random.randn(3)
+
+# line = Line((x0, y0, z0), (x1, y1, z1))
+# Bx, By, Bz = line.B((x, y, z), I=1)
