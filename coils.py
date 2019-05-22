@@ -522,7 +522,7 @@ class RacetrackCoil(Container, CurrentObject):
                     StraightSegment(
                         self.pos_to_lab((xprime0, yprime, 0)),
                         self.pos_to_lab((xprime1, yprime, 0)),
-                        self.pos_to_lab((0, 1, 0)),
+                        self.vector_to_lab((0, 1, 0)),
                         self.R_outer - self.R_inner,
                         self.height,
                         n_turns=n_turns,
@@ -540,7 +540,7 @@ class RacetrackCoil(Container, CurrentObject):
                     StraightSegment(
                         self.pos_to_lab((xprime, yprime0, 0)),
                         self.pos_to_lab((xprime, yprime1, 0)),
-                        self.pos_to_lab((1, 0, 0)),
+                        self.vector_to_lab((1, 0, 0)),
                         self.R_outer - self.R_inner,
                         self.height,
                         n_turns=n_turns,
