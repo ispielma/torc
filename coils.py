@@ -153,6 +153,24 @@ class CurrentObject(object):
         rprime = self.pos_to_local(r)
         return self.vector_to_lab(self.B_local(rprime, I * self.n_turns))
 
+    def dB(self, r, I, s, ds=1e-6):
+        """Return a magnetic field derivative at position r=(x, y, z) for a given
+        current. The derivative returned is that of the field vector in the direction s,
+        which can be 'x', 'y', 'z', or an arbitrary vector whose direction will be used
+        (magnitude ignored). Step size ds for numerical differentiation can be given,
+        otherwise defaults to 1um. Derivative is evaluated with a 2nd order central
+        finite difference."""
+        if isinstance(s, str):
+            try:
+                s = {'x': (1, 0, 0), 'y': (0, 1, 0), 'z': (0, 0, 1)}[s]
+            except KeyError:
+                raise KeyError("s must be one of 'x', 'y', 'z' or a vector") from None
+        s = np.array(s) / np.sqrt(np.dot(s, s))
+        r = np.array(r)
+        rp = ((r.T) + s * ds / 2).T
+        rm = ((r.T) - s * ds / 2).T
+        return (self.B(rp, I) - self.B(rm, I)) / (2 * ds)
+
     def surfaces(self):
         return [self.pos_to_lab(pts) for pts in self.local_surfaces()]
 
