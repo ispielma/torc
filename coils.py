@@ -328,26 +328,48 @@ class RoundCoil(Container, CurrentObject):
     def local_surfaces(self):
         # Create arrays (in local coordinates) describing surfaces of the coil for
         # plotting:
-        theta = np.linspace(-pi, pi, 73)  # 73 is every 5 degrees
-        zprime = np.array([-self.height / 2, self.height / 2])
-        r = np.array([self.R_inner, self.R_outer])
+        n_theta = 73  # 73 is every 5 degrees
+        # number of points around the cross section: four edges plus bezels, initial and
+        # final points duplicated to close the path:
+        n_crosssec = 9
+        bezel = 0.075 * min((self.R_outer - self.R_inner), self.height)
 
-        surfaces = []
+        # The shape of the cross section, with bezels:
+        zprime = np.array(
+            [
+                self.height / 2 - bezel,
+                self.height / 2,
+                self.height / 2,
+                self.height / 2 - bezel,
+                -self.height / 2 + bezel,
+                -self.height / 2,
+                -self.height / 2,
+                -self.height / 2 + bezel,
+                self.height / 2 - bezel,
+            ]
+        )
 
-        # Top and bottom caps:
-        _theta, _r, = np.meshgrid(theta, r)
-        xprime = _r * np.cos(theta)
-        yprime = _r * np.sin(theta)
+        r = np.array(
+            [
+                self.R_inner,
+                self.R_inner + bezel,
+                self.R_outer - bezel,
+                self.R_outer,
+                self.R_outer,
+                self.R_outer - bezel,
+                self.R_inner + bezel,
+                self.R_inner,
+                self.R_inner,
+            ]
+        )
 
-        surfaces.append((xprime, yprime, zprime[0]))
-        surfaces.append((xprime, yprime, zprime[1]))
-
-        # Inner and outer edges:
-        _theta, _zprime = np.meshgrid(theta, zprime)
-        surfaces.append((r[0] * np.cos(theta), r[0] * np.sin(theta), _zprime))
-        surfaces.append((r[1] * np.cos(theta), r[1] * np.sin(theta), _zprime))
-
-        return surfaces
+        theta = np.linspace(-pi, pi, n_theta)
+        theta = np.broadcast_to(theta[:, np.newaxis], (n_theta, n_crosssec))
+        r = np.broadcast_to(r, (n_theta, n_crosssec))
+        zprime = np.broadcast_to(zprime, (n_theta, n_crosssec))
+        xprime = r * np.cos(theta)
+        yprime = r * np.sin(theta)
+        return [(xprime, yprime, zprime)]
 
 
 class StraightSegment(Container, CurrentObject):
@@ -376,21 +398,45 @@ class StraightSegment(Container, CurrentObject):
     def local_surfaces(self):
         # Create arrays (in local coordinates) describing surfaces of the segment for
         # plotting:
-        xprime = np.array([-self.width / 2, self.width / 2])
-        yprime = np.array([-self.height / 2, self.height / 2])
+        # number of points around the cross section: four edges plus bezels, with final
+        # and initial points duplicated:
+        n_crosssec = 9
+        bezel = 0.075 * min(self.width, self.height)
+
+        # The shape of the cross section, with bezels:
+        xprime = np.array(
+            [
+                -self.width / 2,
+                -self.width / 2 + bezel,
+                self.width / 2 - bezel,
+                self.width / 2,
+                self.width / 2,
+                self.width / 2 - bezel,
+                -self.width / 2 + bezel,
+                -self.width / 2,
+                -self.width / 2,
+            ]
+        )
+
+        yprime = np.array(
+            [
+                self.height / 2 - bezel,
+                self.height / 2,
+                self.height / 2,
+                self.height / 2 - bezel,
+                -self.height / 2 + bezel,
+                -self.height / 2,
+                -self.height / 2,
+                -self.height / 2 + bezel,
+                self.height / 2 - bezel,
+            ]
+        )
+
         zprime = np.array([0, self.L])
-
-        surfaces = []
-        # Top and bottom surfaces:
-        _xprime, _zprime = np.meshgrid(xprime, zprime)
-        surfaces.append((_xprime, yprime[0], _zprime))
-        surfaces.append((_xprime, yprime[1], _zprime))
-
-        # Left and right surfaces:
-        _yprime, _zprime = np.meshgrid(yprime, zprime)
-        surfaces.append((xprime[0], _yprime, _zprime))
-        surfaces.append((xprime[1], _yprime, _zprime))
-        return surfaces
+        zprime = np.broadcast_to(zprime[:, np.newaxis], (2, n_crosssec))
+        xprime = np.broadcast_to(xprime, (2, n_crosssec))
+        yprime = np.broadcast_to(yprime, (2, n_crosssec))
+        return [(xprime, yprime, zprime)]
 
 
 class CurvedSegment(Container, CurrentObject):
@@ -434,27 +480,48 @@ class CurvedSegment(Container, CurrentObject):
     def local_surfaces(self):
         # Create arrays (in local coordinates) describing surfaces of the segment for
         # plotting:
-        npts = int((self.phi_1 - self.phi_0) / (pi / 36)) + 1  # ~every 5 degrees
-        theta = np.linspace(self.phi_0, self.phi_1, npts)
-        zprime = np.array([-self.height / 2, self.height / 2])
-        r = np.array([self.R_inner, self.R_outer])
+        n_theta = int((self.phi_1 - self.phi_0) / (pi / 36)) + 1  # ~every 5 degrees
+        # number of points around the cross section: four edges plus bezels, initial and
+        # final points duplicated to close the path:
+        n_crosssec = 9
+        bezel = 0.075 * min((self.R_outer - self.R_inner), self.height)
 
-        surfaces = []
+        # The shape of the cross section, with bezels:
+        zprime = np.array(
+            [
+                self.height / 2 - bezel,
+                self.height / 2,
+                self.height / 2,
+                self.height / 2 - bezel,
+                -self.height / 2 + bezel,
+                -self.height / 2,
+                -self.height / 2,
+                -self.height / 2 + bezel,
+                self.height / 2 - bezel,
+            ]
+        )
 
-        # Top and bottom caps:
-        _theta, _r, = np.meshgrid(theta, r)
-        xprime = _r * np.cos(theta)
-        yprime = _r * np.sin(theta)
+        r = np.array(
+            [
+                self.R_inner,
+                self.R_inner + bezel,
+                self.R_outer - bezel,
+                self.R_outer,
+                self.R_outer,
+                self.R_outer - bezel,
+                self.R_inner + bezel,
+                self.R_inner,
+                self.R_inner,
+            ]
+        )
 
-        surfaces.append((xprime, yprime, zprime[0]))
-        surfaces.append((xprime, yprime, zprime[1]))
-
-        # Inner and outer edges:
-        _theta, _zprime = np.meshgrid(theta, zprime)
-        surfaces.append((r[0] * np.cos(theta), r[0] * np.sin(theta), _zprime))
-        surfaces.append((r[1] * np.cos(theta), r[1] * np.sin(theta), _zprime))
-
-        return surfaces
+        theta = np.linspace(self.phi_0, self.phi_1, n_theta)
+        theta = np.broadcast_to(theta[:, np.newaxis], (n_theta, n_crosssec))
+        r = np.broadcast_to(r, (n_theta, n_crosssec))
+        zprime = np.broadcast_to(zprime, (n_theta, n_crosssec))
+        xprime = r * np.cos(theta)
+        yprime = r * np.sin(theta)
+        return [(xprime, yprime, zprime)]
 
 
 class RacetrackCoil(Container, CurrentObject):
