@@ -177,8 +177,8 @@ class CurrentObject(object):
 
 
 class Container(CurrentObject):
-    def __init__(self, r0=(0, 0, 0), zprime=(0, 0, 1), xprime=None):
-        super().__init__(r0=r0, zprime=zprime, xprime=xprime)
+    def __init__(self, r0=(0, 0, 0), zprime=(0, 0, 1), xprime=None, n_turns=1):
+        super().__init__(r0=r0, zprime=zprime, xprime=xprime, n_turns=n_turns)
         self.children = []
 
     def add(self, child):
@@ -267,7 +267,7 @@ class Arc(Container, CurrentObject):
         which if phi_0 < phi_1, is in the positive sense with respect to the normal
         direction n. This arc will is constructed out of n_seg separate line segments,
         so the accuracy can be increased by increasing n_seg."""
-        super().__init__(r0=r0, zprime=n, xprime=n_perp)
+        super().__init__(r0=r0, zprime=n, xprime=n_perp, n_turns=n_turns)
 
         delta_phi = (phi_1 - phi_0) / n_seg
         for i in range(n_seg):
@@ -280,34 +280,36 @@ class Arc(Container, CurrentObject):
 
             r0_seg = self.pos_to_lab((xprime0, yprime0, 0))
             r1_seg = self.pos_to_lab((xprime1, yprime1, 0))
-            self.add(Line(r0_seg, r1_seg, n_turns=self.n_turns))
-
+            self.add(Line(r0_seg, r1_seg, n_turns=n_turns))
 
 
 class RoundCoil(Container, CurrentObject):
     def __init__(
-        self, r0, n, R_inner, R_outer, thickness, n_turns=1, cross_sec_segs=12
+        self, r0, n, R_inner, R_outer, height, n_turns=1, cross_sec_segs=12
     ):
-        super().__init__(r0=r0, zprime=n)
-        self.r0 = np.array(r0, dtype=float)
-        self.n = np.array(n, dtype=float)
-        self.n /= np.sqrt(np.dot(self.n, self.n))
+        """A round loop of conductor with rectangular cross section, centred at r0 with
+        normal vector n, inner radius R_inner, outer radius R_outer, and the given
+        height (in the normal direction). The finite cross-section is approximated using
+        a number cross_sec_segs of 1D current loops distributed evenly through the cross
+        section. n_turns is an overall multiplier for the current used in field
+        calculations"""
+        super().__init__(r0=r0, zprime=n, n_turns=n_turns)
         self.R_inner = R_inner
         self.R_outer = R_outer
-        self.thickness = thickness
-        self.n_turns = n_turns
+        self.height = height
         self.cross_sec_segs = cross_sec_segs
 
         n_turns_per_seg = self.n_turns / self.cross_sec_segs
-        segs = segments(R_inner, R_outer, -thickness / 2, thickness / 2, cross_sec_segs)
+        segs = segments(R_inner, R_outer, -height / 2, height / 2, cross_sec_segs)
         for R, zprime in segs:
-            self.add(Loop(self.r0 + zprime * self.n, n, R, n_turns=n_turns_per_seg))
+            r0_loop = self.pos_to_lab((0, 0, zprime))
+            self.add(Loop(r0_loop, n, R, n_turns=n_turns_per_seg))
 
-    def local_surfaces(self, **kwargs):
+    def local_surfaces(self):
         # Create arrays (in local coordinates) describing surfaces of the coil for
         # plotting:
         theta = np.linspace(-pi, pi, 361)
-        zprime = np.array([-self.thickness / 2, self.thickness / 2])
+        zprime = np.array([-self.height / 2, self.height / 2])
         r = np.array([self.R_inner, self.R_outer])
 
         surfaces = []
@@ -328,17 +330,66 @@ class RoundCoil(Container, CurrentObject):
         return surfaces
 
 
+class StraightSegment(Container, CurrentObject):
+    def __init__(self, r0, r1, n, width, height, n_turns=1, cross_sec_segs=12):
+        """A straight segment of conductor, with current flowing in a rectangular cross
+        section centred on the line from r0 to r1. A vector n normal to the direction of
+        current flow determines which direction the 'height' refers to, the width refers
+        to the size of the conductor in the remaining direction. The finite
+        cross-section is approximated using a number cross_sec_segs of 1D current lines
+        distributed evenly through the cross section. n_turns is an overall multiplier
+        for the current used in field calculations"""
+        r0 = np.array(r0, dtype=float)
+        r1 = np.array(r1, dtype=float)
+        super().__init__(r0=r0, zprime=r1 - r0, xprime=n, n_turns=n_turns)
+        self.width = width
+        self.height = height
+        self.cross_sec_segs = cross_sec_segs
+        self.L = np.sqrt(((np.array(r1) - np.array(r0))**2).sum())
+
+        n_turns_per_seg = self.n_turns / self.cross_sec_segs
+        segs = segments(-width / 2, width / 2, -height / 2, height / 2, cross_sec_segs)
+        for xprime, yprime in segs:
+            r0_line = self.pos_to_lab((xprime, yprime, 0))
+            r1_line = self.pos_to_lab((xprime, yprime, self.L))
+            self.add(Line(r0_line, r1_line, n_turns=n_turns_per_seg))
+
+    def local_surfaces(self):
+        # Create arrays (in local coordinates) describing surfaces of the segment for
+        # plotting:
+        xprime = np.array([-self.width / 2, self.width / 2])
+        yprime = np.array([-self.height / 2, self.height / 2])
+        zprime = np.array([0, self.L])
+
+        surfaces = []
+        # Top and bottom surfaces:
+        _xprime, _zprime = np.meshgrid(xprime, zprime)
+        surfaces.append((_xprime, yprime[0], _zprime))
+        surfaces.append((_xprime, yprime[1], _zprime))
+
+        # Left and right surfaces:
+        _yprime, _zprime = np.meshgrid(yprime, zprime)
+        surfaces.append((xprime[0], _yprime, _zprime))
+        surfaces.append((xprime[1], _yprime, _zprime))
+        return surfaces
+
 if __name__ == '__main__':
     coil1 = RoundCoil((0, 0, 0), (0, 0, 1), 0.8, 1.2, 0.4, cross_sec_segs=12)
     coil2 = RoundCoil(
         (2, 0, 0), (0, 1, 1), 0.8 / 2, 1.2 / 2, 0.4 / 2, cross_sec_segs=12
     )
     arc = Arc((0,1,0), (0,0,1), (1, 0, 0), 1, 0, pi)
-    container = Container()
-    container.add(arc)
-    container.add(coil1)
-    container.add(coil2)
-    container.show()
+    # arc.show()
+
+    straight_seg = StraightSegment((4, 0, 0), (3, 0, 0), (0,1,0), .4, .4)
+    straight_seg.show(surfaces=True)
+
+    # container = Container()
+    # container.add(arc)
+    # container.add(coil1)
+    # container.add(coil2)
+    # container.add(straight_seg)
+    # container.show(surfaces=True)
 
 # x = np.linspace(-10, 10, 100)
 # y = 1
