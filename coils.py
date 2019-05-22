@@ -1,12 +1,13 @@
-import PyQt4
 import numpy as np
 from scipy.special import ellipk, ellipe
 from scipy.constants import mu_0
 
 pi = np.pi
 
-import matplotlib.pyplot as plt
 from mayavi.mlab import mesh, plot3d, show
+
+
+COPPER = (0.722, 0.451, 0.200)
 
 
 def get_factors(n):
@@ -161,18 +162,22 @@ class CurrentObject(object):
     def local_surfaces(self):
         return []
 
-    def local_paths(self):
+    def local_lines(self):
         return []
 
-    def show(self, surfaces=True, lines=False, **kwargs):
+    def show(self, surfaces=True, lines=False, color=COPPER, **kwargs):
         if surfaces:
             surfaces = self.surfaces()
             for x, y, z in surfaces:
-                mesh(x, y, z, **kwargs)
+                surf = mesh(x, y, z, color=color, **kwargs)
+                surf.actor.property.specular = 1.0
+                surf.actor.property.specular_power = 128.0
         if lines:
             lines = self.lines()
             for x, y, z in lines:
-                plot3d(x, y, z)
+                surf = plot3d(x, y, z, color=color, **kwargs)
+                surf.actor.property.specular = 0.0
+                surf.actor.property.specular_power = 10.0
         show()
 
 
@@ -201,7 +206,7 @@ class Container(CurrentObject):
         return surfaces
 
     def lines(self):
-        lines = [self.pos_to_lab(pts) for pts in self.local_paths()]
+        lines = [self.pos_to_lab(pts) for pts in self.local_lines()]
         for child in self.children:
             lines.extend(child.lines())
         return lines
@@ -239,7 +244,7 @@ class Line(CurrentObject):
         """Current line from r0 = (x0, y0, z0) to r1 = (x1, y1, z1) with current flowing
         from the former to the latter"""
         super().__init__(r0=r0, zprime=np.array(r1) - np.array(r0), n_turns=n_turns)
-        self.L = np.sqrt(((np.array(r1) - np.array(r0))**2).sum())
+        self.L = np.sqrt(((np.array(r1) - np.array(r0)) ** 2).sum())
 
     def B_local(self, rprime, I):
         """Field due to the loop at position rprime=(xprime, yprime, zprime) for current
@@ -249,7 +254,7 @@ class Line(CurrentObject):
         rho = np.sqrt(xprime ** 2 + yprime ** 2)
         B_phi = field_of_current_line(rho, zprime, self.L, I)
         phi = np.arctan2(yprime, xprime)
-        B_xprime = - B_phi * np.sin(phi)
+        B_xprime = -B_phi * np.sin(phi)
         B_yprime = B_phi * np.cos(phi)
         return np.array([B_xprime, B_yprime, np.zeros_like(B_xprime)])
 
@@ -284,9 +289,7 @@ class Arc(Container, CurrentObject):
 
 
 class RoundCoil(Container, CurrentObject):
-    def __init__(
-        self, r0, n, R_inner, R_outer, height, n_turns=1, cross_sec_segs=12
-    ):
+    def __init__(self, r0, n, R_inner, R_outer, height, n_turns=1, cross_sec_segs=12):
         """A round loop of conductor with rectangular cross section, centred at r0 with
         normal vector n, inner radius R_inner, outer radius R_outer, and the given
         height (in the normal direction). The finite cross-section is approximated using
@@ -307,7 +310,7 @@ class RoundCoil(Container, CurrentObject):
     def local_surfaces(self):
         # Create arrays (in local coordinates) describing surfaces of the coil for
         # plotting:
-        theta = np.linspace(-pi, pi, 73) # 73 is every 5 degrees
+        theta = np.linspace(-pi, pi, 73)  # 73 is every 5 degrees
         zprime = np.array([-self.height / 2, self.height / 2])
         r = np.array([self.R_inner, self.R_outer])
 
@@ -343,7 +346,7 @@ class StraightSegment(Container, CurrentObject):
         super().__init__(r0=r0, zprime=r1 - r0, xprime=n, n_turns=n_turns)
         self.width = width
         self.height = height
-        self.L = np.sqrt(((np.array(r1) - np.array(r0))**2).sum())
+        self.L = np.sqrt(((np.array(r1) - np.array(r0)) ** 2).sum())
 
         n_turns_per_seg = self.n_turns / cross_sec_segs
         segs = segments(-width / 2, width / 2, -height / 2, height / 2, cross_sec_segs)
@@ -385,7 +388,7 @@ class CurvedSegment(Container, CurrentObject):
         phi_1,
         n_turns=1,
         cross_sec_segs=12,
-        arc_segs=12
+        arc_segs=12,
     ):
 
         """Rounded segment of conductor with rectangular cross section, forming part of
@@ -413,7 +416,7 @@ class CurvedSegment(Container, CurrentObject):
     def local_surfaces(self):
         # Create arrays (in local coordinates) describing surfaces of the segment for
         # plotting:
-        npts = int((self.phi_1 - self.phi_0) / (pi / 36)) + 1 # ~every 5 degrees
+        npts = int((self.phi_1 - self.phi_0) / (pi / 36)) + 1  # ~every 5 degrees
         theta = np.linspace(self.phi_0, self.phi_1, npts)
         zprime = np.array([-self.height / 2, self.height / 2])
         r = np.array([self.R_inner, self.R_outer])
@@ -434,6 +437,7 @@ class CurvedSegment(Container, CurrentObject):
         surfaces.append((r[1] * np.cos(theta), r[1] * np.sin(theta), _zprime))
 
         return surfaces
+
 
 class RacetrackCoil(Container, CurrentObject):
     def __init__(
@@ -494,14 +498,14 @@ class RacetrackCoil(Container, CurrentObject):
         xprime0 = width / 2 - R_inner
         xprime1 = -xprime0
         absyprime = (length + R_outer - R_inner) / 2
-        if xprime1 != xprime0: # Exclude this segment if its length is zero:
+        if xprime1 != xprime0:  # Exclude this segment if its length is zero:
             for yprime in [absyprime, -absyprime]:
                 self.add(
                     StraightSegment(
                         self.pos_to_lab((xprime0, yprime, 0)),
                         self.pos_to_lab((xprime1, yprime, 0)),
                         self.pos_to_lab((0, 1, 0)),
-                        self.R_outer - self.R_inner, 
+                        self.R_outer - self.R_inner,
                         self.height,
                         n_turns=n_turns,
                         cross_sec_segs=cross_sec_segs,
@@ -512,26 +516,27 @@ class RacetrackCoil(Container, CurrentObject):
         yprime0 = length / 2 - R_inner
         yprime1 = -yprime0
         absxprime = (width + R_outer - R_inner) / 2
-        if yprime1 != yprime0: # Exclude this segment if its length is zero:
+        if yprime1 != yprime0:  # Exclude this segment if its length is zero:
             for xprime in [absxprime, -absxprime]:
                 self.add(
                     StraightSegment(
                         self.pos_to_lab((xprime, yprime0, 0)),
                         self.pos_to_lab((xprime, yprime1, 0)),
                         self.pos_to_lab((1, 0, 0)),
-                        self.R_outer - self.R_inner, 
+                        self.R_outer - self.R_inner,
                         self.height,
                         n_turns=n_turns,
                         cross_sec_segs=cross_sec_segs,
                     )
                 )
 
+
 if __name__ == '__main__':
     coil1 = RoundCoil((0, 0, 0), (0, 0, 1), 0.8, 1.2, 0.4, cross_sec_segs=12)
     coil2 = RoundCoil(
         (2, 0, 0), (0, 1, 1), 0.8 / 2, 1.2 / 2, 0.4 / 2, cross_sec_segs=12
     )
-    arc = Arc((0,1,0), (0,0,1), (1, 0, 0), 1, 0, pi)
+    arc = Arc((0, 1, 0), (0, 0, 1), (1, 0, 0), 1, 0, pi)
     # arc.show()
 
     # straight_seg = StraightSegment((0, 0, 0), (0, 0, 1), (1, 0, 0), width=2, height=1)
@@ -543,7 +548,7 @@ if __name__ == '__main__':
     racetrack = RacetrackCoil(
         (0, 0, 0),
         (0, 0, 1),
-        (1,0,0),
+        (1, 0, 0),
         width=2,
         length=4,
         # width=3,
@@ -556,7 +561,7 @@ if __name__ == '__main__':
         cross_sec_segs=12,
     )
 
-    racetrack.show(surfaces=False, lines=True)
+    racetrack.show()
 
     # container = Container()
     # container.add(arc)
