@@ -91,6 +91,15 @@ def field_of_current_line(r, z, L, I):
     return prefactor * (term1 + term2)
 
 
+def _cross(a, b):
+    """Cross product of a and b. For some reason np.cross is very slow, so here we
+    are."""
+    x = a[1] * b[2] - a[2] * b[1]
+    y = a[2] * b[0] - a[0] * b[2]
+    z = a[0] * b[1] - a[1] * b[0]
+    return np.array([x, y, z])
+
+
 class CurrentObject(object):
     def __init__(self, r0, zprime, xprime=None, n_turns=1):
         """A current-carrying object with a coordinate system centred at position r0 =
@@ -106,24 +115,23 @@ class CurrentObject(object):
         self.zprime = np.array(zprime) / np.sqrt(np.dot(zprime, zprime))
         if xprime is None:
             # A random vector that is orthogonal to zprime:
-            xprime = np.cross(np.random.randn(3), zprime)
+            xprime = _cross(np.random.randn(3), zprime)
         self.xprime = np.array(xprime) / np.sqrt(np.dot(xprime, xprime))
 
         if not abs(np.dot(self.xprime, self.zprime)) < 1e-10:
             raise ValueError("Primary and secondary axes of object not orthogonal")
 
-        self.yprime = np.cross(self.zprime, self.xprime)
+        self.yprime = _cross(self.zprime, self.xprime)
 
-        # Rotation matrix from local frame to lab frame, and its inverse
+        # Rotation matrix from local frame to lab frame:
         self.Q_rot = np.stack([self.xprime, self.yprime, self.zprime], axis=1)
-        self.Q_rot_inv = np.linalg.inv(self.Q_rot)
         self.n_turns = n_turns
 
     def pos_to_local(self, r):
         """Take a point r = (x, y, z) in the lab frame and return rprime = (xprime,
         yprime, zprime) in the local frame of reference of the object."""
         r = _broadcast(r)
-        return np.einsum('ij,j...->i...', self.Q_rot_inv, (r.T - self.r0).T)
+        return np.einsum('ij,j...->i...', self.Q_rot.T, (r.T - self.r0).T)
 
     def pos_to_lab(self, rprime):
         """Take a point rprime = (xprime, yprime, zprime) in the local frame of the
@@ -137,7 +145,7 @@ class CurrentObject(object):
         This is different to transforming coordinates as it only rotates the vector, it
         does not translate it."""
         v = _broadcast(v)
-        return np.einsum('ij,j...->i...', self.Q_rot_inv, v)
+        return np.einsum('ij,j...->i...', self.Q_rot.T, v)
 
     def vector_to_lab(self, vprime):
         """Take a vector vprime=(v_xprime, v_yprime, v_zprime) in the local frame of the
@@ -152,6 +160,9 @@ class CurrentObject(object):
         # r = _broadcast(r)
         rprime = self.pos_to_local(r)
         return self.vector_to_lab(self.B_local(rprime, I * self.n_turns))
+
+    def B_local(self, r, I):
+        return np.zeros_like(r)
 
     def dB(self, r, I, s, ds=1e-6):
         """Return a magnetic field derivative at position r=(x, y, z) for a given
@@ -180,10 +191,12 @@ class CurrentObject(object):
     def local_surfaces(self):
         return []
 
-    def local_lines(self):
+    def local_paths(self):
         return []
 
-    def show(self, surfaces=True, lines=False, color=COPPER, **kwargs):
+    def show(
+        self, surfaces=True, lines=False, color=COPPER, tube_radius=1e-3, **kwargs
+    ):
         if surfaces:
             surfaces = self.surfaces()
             for x, y, z in surfaces:
@@ -193,7 +206,7 @@ class CurrentObject(object):
         if lines:
             lines = self.lines()
             for x, y, z in lines:
-                surf = plot3d(x, y, z, color=color, **kwargs)
+                surf = plot3d(x, y, z, color=color, tube_radius=tube_radius, **kwargs)
                 surf.actor.property.specular = 0.0
                 surf.actor.property.specular_power = 10.0
         show()
@@ -204,12 +217,9 @@ class Container(CurrentObject):
         super().__init__(r0=r0, zprime=zprime, xprime=xprime, n_turns=n_turns)
         self.children = []
 
-    def add(self, child):
-        self.children.append(child)
-
-    def plot(self, **kwargs):
-        for child in self.children:
-            child.plot(**kwargs)
+    def add(self, *children):
+        for child in children: 
+            self.children.append(child)
 
     def B(self, r, I):
         Bs = []
