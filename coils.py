@@ -164,15 +164,15 @@ class CurrentObject(object):
     def local_paths(self):
         return []
 
-    def show(self, surfaces=False, **kwargs):
+    def show(self, surfaces=True, lines=False, **kwargs):
         if surfaces:
             surfaces = self.surfaces()
             for x, y, z in surfaces:
                 mesh(x, y, z, **kwargs)
-        lines = self.lines()
-        for x, y, z in lines:
-            plot3d(x, y, z)
-        
+        if lines:
+            lines = self.lines()
+            for x, y, z in lines:
+                plot3d(x, y, z)
         show()
 
 
@@ -254,23 +254,23 @@ class Line(CurrentObject):
         return np.array([B_xprime, B_yprime, np.zeros_like(B_xprime)])
 
     def local_paths(self):
-        zprime = np.linspace(0, self.L)
+        zprime = np.array([0, self.L], dtype=float)
         xprime = yprime = 0
         return [(xprime, yprime, zprime)]
 
 
 class Arc(Container, CurrentObject):
-    def __init__(self, r0, n, n_perp, R, phi_0, phi_1, n_turns=1, n_seg=12):
+    def __init__(self, r0, n, n_perp, R, phi_0, phi_1, n_turns=1, n_segs=12):
         """Current arc forming part of a loop centred at r0 with normal vector n, from
         angle theta_0 to theta_1 defined with respect to the direction n_perp, which
-        should be an axis perpendicular to n. Current is flowing from phi_0 to phi_1,
-        which if phi_0 < phi_1, is in the positive sense with respect to the normal
-        direction n. This arc will is constructed out of n_seg separate line segments,
+        should be a direction perpendicular to n. Current is flowing from phi_0 to
+        phi_1, which if phi_0 < phi_1, is in the positive sense with respect to the
+        normal direction n. This arc is constructed out of n_seg separate line segments,
         so the accuracy can be increased by increasing n_seg."""
         super().__init__(r0=r0, zprime=n, xprime=n_perp, n_turns=n_turns)
 
-        delta_phi = (phi_1 - phi_0) / n_seg
-        for i in range(n_seg):
+        delta_phi = (phi_1 - phi_0) / n_segs
+        for i in range(n_segs):
             phi_seg_start = phi_0 + i * delta_phi
             phi_seg_stop = phi_0 + (i + 1) * delta_phi
             xprime0 = R * np.cos(phi_seg_start)
@@ -297,9 +297,8 @@ class RoundCoil(Container, CurrentObject):
         self.R_inner = R_inner
         self.R_outer = R_outer
         self.height = height
-        self.cross_sec_segs = cross_sec_segs
 
-        n_turns_per_seg = self.n_turns / self.cross_sec_segs
+        n_turns_per_seg = self.n_turns / cross_sec_segs
         segs = segments(R_inner, R_outer, -height / 2, height / 2, cross_sec_segs)
         for R, zprime in segs:
             r0_loop = self.pos_to_lab((0, 0, zprime))
@@ -308,7 +307,7 @@ class RoundCoil(Container, CurrentObject):
     def local_surfaces(self):
         # Create arrays (in local coordinates) describing surfaces of the coil for
         # plotting:
-        theta = np.linspace(-pi, pi, 361)
+        theta = np.linspace(-pi, pi, 73) # 73 is every 5 degrees
         zprime = np.array([-self.height / 2, self.height / 2])
         r = np.array([self.R_inner, self.R_outer])
 
@@ -334,7 +333,7 @@ class StraightSegment(Container, CurrentObject):
     def __init__(self, r0, r1, n, width, height, n_turns=1, cross_sec_segs=12):
         """A straight segment of conductor, with current flowing in a rectangular cross
         section centred on the line from r0 to r1. A vector n normal to the direction of
-        current flow determines which direction the 'height' refers to, the width refers
+        current flow determines which direction the 'width' refers to, the height refers
         to the size of the conductor in the remaining direction. The finite
         cross-section is approximated using a number cross_sec_segs of 1D current lines
         distributed evenly through the cross section. n_turns is an overall multiplier
@@ -344,10 +343,9 @@ class StraightSegment(Container, CurrentObject):
         super().__init__(r0=r0, zprime=r1 - r0, xprime=n, n_turns=n_turns)
         self.width = width
         self.height = height
-        self.cross_sec_segs = cross_sec_segs
         self.L = np.sqrt(((np.array(r1) - np.array(r0))**2).sum())
 
-        n_turns_per_seg = self.n_turns / self.cross_sec_segs
+        n_turns_per_seg = self.n_turns / cross_sec_segs
         segs = segments(-width / 2, width / 2, -height / 2, height / 2, cross_sec_segs)
         for xprime, yprime in segs:
             r0_line = self.pos_to_lab((xprime, yprime, 0))
@@ -373,6 +371,161 @@ class StraightSegment(Container, CurrentObject):
         surfaces.append((xprime[1], _yprime, _zprime))
         return surfaces
 
+
+class CurvedSegment(Container, CurrentObject):
+    def __init__(
+        self,
+        r0,
+        n,
+        n_perp,
+        R_inner,
+        R_outer,
+        height,
+        phi_0,
+        phi_1,
+        n_turns=1,
+        cross_sec_segs=12,
+        arc_segs=12
+    ):
+
+        """Rounded segment of conductor with rectangular cross section, forming part of
+        a round coil centred at r0 with normal vector n, from angle theta_0 to theta_1
+        defined with respect to the direction n_perp, which should be a direction
+        perpendicular to n. Current is flowing from phi_0 to phi_1, which if phi_0 <
+        phi_1, is in the positive sense with respect to the normal direction n. The
+        finite cross-section is approximated using a number cross_sec_segs of 1D current
+        arcs distributed evenly through the cross section, each itself approximated as
+        arc_segs separate current lines. n_turns is an overall multiplier for the
+        current used in field calculations"""
+        super().__init__(r0=r0, zprime=n, xprime=n_perp, n_turns=n_turns)
+        self.R_inner = R_inner
+        self.R_outer = R_outer
+        self.height = height
+        self.phi_0 = phi_0
+        self.phi_1 = phi_1
+
+        n_turns_per_seg = self.n_turns / cross_sec_segs
+        segs = segments(R_inner, R_outer, -height / 2, height / 2, cross_sec_segs)
+        for R, zprime in segs:
+            r0_arc = self.pos_to_lab((0, 0, zprime))
+            self.add(Arc(r0_arc, n, n_perp, R, phi_0, phi_1, n_turns_per_seg, arc_segs))
+
+    def local_surfaces(self):
+        # Create arrays (in local coordinates) describing surfaces of the segment for
+        # plotting:
+        npts = int((self.phi_1 - self.phi_0) / (pi / 36)) + 1 # ~every 5 degrees
+        theta = np.linspace(self.phi_0, self.phi_1, npts)
+        zprime = np.array([-self.height / 2, self.height / 2])
+        r = np.array([self.R_inner, self.R_outer])
+
+        surfaces = []
+
+        # Top and bottom caps:
+        _theta, _r, = np.meshgrid(theta, r)
+        xprime = _r * np.cos(theta)
+        yprime = _r * np.sin(theta)
+
+        surfaces.append((xprime, yprime, zprime[0]))
+        surfaces.append((xprime, yprime, zprime[1]))
+
+        # Inner and outer edges:
+        _theta, _zprime = np.meshgrid(theta, zprime)
+        surfaces.append((r[0] * np.cos(theta), r[0] * np.sin(theta), _zprime))
+        surfaces.append((r[1] * np.cos(theta), r[1] * np.sin(theta), _zprime))
+
+        return surfaces
+
+class RacetrackCoil(Container, CurrentObject):
+    def __init__(
+        self,
+        r0,
+        n,
+        n_perp,
+        width,
+        length,
+        height,
+        R_inner,
+        R_outer,
+        n_turns=1,
+        arc_segs=12,
+        cross_sec_segs=12,
+    ):
+        """A rectangular cross section coil comprising four straight segments and four
+        90-degree curved segments. The coil is centred at r0 with normal vector n, and
+        has the given height in the normal direction. n_perp defines direction along
+        which 'width' gives the distance between the inner surfaces of two straight
+        segments. 'length' gives the distance between the inner surfaces of the other
+        two straight segments. R_inner and R_outer are the inner and outer radii of
+        curvature of the curved segments. The finite cross-section is approximated using
+        a number cross_sec_segs of 1D current lines and arcs distributed evenly through
+        the cross section, and each arc is further approximated as arc_segs separate
+        current lines. n_turns is an overall multiplier for the current used in field
+        calculations"""
+
+        super().__init__(r0=r0, zprime=n, xprime=n_perp, n_turns=n_turns)
+        self.width = width
+        self.length = length
+        self.height = height
+        self.R_inner = R_inner
+        self.R_outer = R_outer
+        for xprime, yprime, phi_0, phi_1 in [
+            [width / 2 - R_inner, length / 2 - R_inner, 0, pi / 2],
+            [-width / 2 + R_inner, length / 2 - R_inner, pi / 2, pi],
+            [-width / 2 + R_inner, -length / 2 + R_inner, pi, 3 * pi / 2],
+            [width / 2 - R_inner, -length / 2 + R_inner, 3 * pi / 2, 2 * pi],
+        ]:
+            self.add(
+                CurvedSegment(
+                    self.pos_to_lab((xprime, yprime, 0)),
+                    n,
+                    n_perp,
+                    R_inner,
+                    R_outer,
+                    height,
+                    phi_0,
+                    phi_1,
+                    n_turns=self.n_turns,
+                    cross_sec_segs=cross_sec_segs,
+                    arc_segs=arc_segs,
+                )
+            )
+
+        # Top and bottom bars:
+        xprime0 = width / 2 - R_inner
+        xprime1 = -xprime0
+        absyprime = (length + R_outer - R_inner) / 2
+        if xprime1 != xprime0: # Exclude this segment if its length is zero:
+            for yprime in [absyprime, -absyprime]:
+                self.add(
+                    StraightSegment(
+                        self.pos_to_lab((xprime0, yprime, 0)),
+                        self.pos_to_lab((xprime1, yprime, 0)),
+                        self.pos_to_lab((0, 1, 0)),
+                        self.R_outer - self.R_inner, 
+                        self.height,
+                        n_turns=n_turns,
+                        cross_sec_segs=cross_sec_segs,
+                    )
+                )
+
+        # Left and right bars
+        yprime0 = length / 2 - R_inner
+        yprime1 = -yprime0
+        absxprime = (width + R_outer - R_inner) / 2
+        if yprime1 != yprime0: # Exclude this segment if its length is zero:
+            for xprime in [absxprime, -absxprime]:
+                self.add(
+                    StraightSegment(
+                        self.pos_to_lab((xprime, yprime0, 0)),
+                        self.pos_to_lab((xprime, yprime1, 0)),
+                        self.pos_to_lab((1, 0, 0)),
+                        self.R_outer - self.R_inner, 
+                        self.height,
+                        n_turns=n_turns,
+                        cross_sec_segs=cross_sec_segs,
+                    )
+                )
+
 if __name__ == '__main__':
     coil1 = RoundCoil((0, 0, 0), (0, 0, 1), 0.8, 1.2, 0.4, cross_sec_segs=12)
     coil2 = RoundCoil(
@@ -381,8 +534,29 @@ if __name__ == '__main__':
     arc = Arc((0,1,0), (0,0,1), (1, 0, 0), 1, 0, pi)
     # arc.show()
 
-    straight_seg = StraightSegment((4, 0, 0), (3, 0, 0), (0,1,0), .4, .4)
-    straight_seg.show(surfaces=True)
+    # straight_seg = StraightSegment((0, 0, 0), (0, 0, 1), (1, 0, 0), width=2, height=1)
+    # straight_seg.show(surfaces=True)
+
+    # curved_seg = CurvedSegment((0, 0, 0), (0, 0, 1), (0, 1, 0), 0.8, 1.2, 0.4, 0, pi)
+    # curved_seg.show()
+
+    racetrack = RacetrackCoil(
+        (0, 0, 0),
+        (0, 0, 1),
+        (1,0,0),
+        width=2,
+        length=4,
+        # width=3,
+        # length=3,
+        height=1,
+        R_inner=1,
+        R_outer=2,
+        n_turns=1,
+        arc_segs=12,
+        cross_sec_segs=12,
+    )
+
+    racetrack.show(surfaces=False, lines=True)
 
     # container = Container()
     # container.add(arc)
