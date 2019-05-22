@@ -127,6 +127,18 @@ class CurrentObject(object):
         self.Q_rot = np.stack([self.xprime, self.yprime, self.zprime], axis=1)
         self.n_turns = n_turns
 
+    @property
+    def x(self):
+        return self.r0[0]
+
+    @property
+    def y(self):
+        return self.r0[1]
+
+    @property
+    def z(self):
+        return self.r0[2]
+
     def pos_to_local(self, r):
         """Take a point r = (x, y, z) in the lab frame and return rprime = (xprime,
         yprime, zprime) in the local frame of reference of the object."""
@@ -161,8 +173,8 @@ class CurrentObject(object):
         rprime = self.pos_to_local(r)
         return self.vector_to_lab(self.B_local(rprime, I * self.n_turns))
 
-    def B_local(self, r, I):
-        return np.zeros_like(r)
+    def B_local(self, rprime, I):
+        return np.zeros_like(rprime)
 
     def dB(self, r, I, s, ds=1e-6):
         """Return a magnetic field derivative at position r=(x, y, z) for a given
@@ -234,7 +246,7 @@ class Container(CurrentObject):
         return surfaces
 
     def lines(self):
-        lines = [self.pos_to_lab(pts) for pts in self.local_lines()]
+        lines = [self.pos_to_lab(pts) for pts in self.local_paths()]
         for child in self.children:
             lines.extend(child.lines())
         return lines
@@ -292,7 +304,7 @@ class Line(CurrentObject):
         return [(xprime, yprime, zprime)]
 
 
-class Arc(Container, CurrentObject):
+class Arc(Container):
     def __init__(self, r0, n, n_perp, R, phi_0, phi_1, n_turns=1, n_segs=12):
         """Current arc forming part of a loop centred at r0 with normal vector n, from
         angle theta_0 to theta_1 defined with respect to the direction n_perp, which
@@ -316,7 +328,7 @@ class Arc(Container, CurrentObject):
             self.add(Line(r0_seg, r1_seg, n_turns=n_turns))
 
 
-class RoundCoil(Container, CurrentObject):
+class RoundCoil(Container):
     def __init__(self, r0, n, R_inner, R_outer, height, n_turns=1, cross_sec_segs=12):
         """A round loop of conductor with rectangular cross section, centred at r0 with
         normal vector n, inner radius R_inner, outer radius R_outer, and the given
@@ -382,7 +394,7 @@ class RoundCoil(Container, CurrentObject):
         return [(xprime, yprime, zprime)]
 
 
-class StraightSegment(Container, CurrentObject):
+class StraightSegment(Container):
     def __init__(self, r0, r1, n, width, height, n_turns=1, cross_sec_segs=12):
         """A straight segment of conductor, with current flowing in a rectangular cross
         section centred on the line from r0 to r1. A vector n normal to the direction of
@@ -449,7 +461,7 @@ class StraightSegment(Container, CurrentObject):
         return [(xprime, yprime, zprime)]
 
 
-class CurvedSegment(Container, CurrentObject):
+class CurvedSegment(Container):
     def __init__(
         self,
         r0,
@@ -534,7 +546,7 @@ class CurvedSegment(Container, CurrentObject):
         return [(xprime, yprime, zprime)]
 
 
-class RacetrackCoil(Container, CurrentObject):
+class RacetrackCoil(Container):
     def __init__(
         self,
         r0,
@@ -624,6 +636,30 @@ class RacetrackCoil(Container, CurrentObject):
                         cross_sec_segs=cross_sec_segs,
                     )
                 )
+
+
+class CoilPair(Container):
+    def __init__(self, coiltype, r0, n, displacement, *args, **kwargs):
+        """A pair of coils of the given type (any class accepting r0 and n as its first
+        instantion arguments) centred on r0. One coil is at (r0 + displacement * n) and
+        has normal vector n, and the other is at (r0 - displacement * n). The second
+        coil has normal vector n if parity is 1 or the string 'helmholtz', and  has
+        normal vector -n if parity is -1 or the string 'anti-helmholtz'. Remaining
+        arguments and keyword arguments will be passed to coiltype()."""
+        super().__init__(r0, zprime=n)
+        parity = kwargs.pop('parity', 'helmholtz')
+        if parity not in [+1, -1]:
+            if parity == 'helmholtz':
+                parity = +1
+            elif parity == 'anti-helmholtz':
+                parity = -1
+            else:
+                msg = "parity must be 'helmholtz' or 'anti-helmholtz' (or +/-1)."
+                raise ValueError(msg)
+        for unit_vec in [self.zprime, -self.zprime]:
+            r0_coil = r0 + displacement * unit_vec
+            n_coil = self.zprime if parity == +1 else unit_vec
+            self.add(coiltype(r0_coil, n_coil, *args, **kwargs))
 
 
 if __name__ == '__main__':
