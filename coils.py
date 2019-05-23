@@ -43,6 +43,30 @@ def segments(x_min, x_max, y_min, y_max, N_segments):
     return midpoints
 
 
+def rectanguar_tube(x0, x1, y0, y1, z0, z1, nz=2, bevel=0.075):
+    """Create 3 2D arrays x, y, z for the points on the surface of a tube with
+    rectangular cross section. x0, x1, y0 and y1 are the transverse extent of the
+    tube, z0 and z1 describe its longitudinal extent. nz may be specified, this is how
+    many points will be created along the z direction. Although this is not necessary
+    to describe a straight tube, a curved tube can be made by transforming the
+    returned points, in which case more than 2 points is necessary for a smooth
+    result. Bevel may be given, this is the fraction of the shorter side of the cross
+    section that will be chopped off the corners of the cross section to create a 45
+    degree bevel on each corner."""
+    b = bevel * min((y1 - y0), (x1 - x0))
+    # Four sides plus bevels plus duplicate final point to close the path
+    n_transverse = 9
+    # The shape of the cross section, with bevels:
+    y = np.array([y1 - b, y1, y1, y1 - b, y0 + b, y0, y0, y0 + b, y1 - b])
+    x = np.array([x0, x0 + b, x1 - b, x1, x1, x1 - b, x0 + b, x0, x0])
+    z = np.linspace(z0, z1, nz)
+    # Broadcasting
+    z = np.broadcast_to(z[:, np.newaxis], (nz, n_transverse))
+    x = np.broadcast_to(x, (nz, n_transverse))
+    y = np.broadcast_to(y, (nz, n_transverse))
+    return x, y, z
+
+
 def _broadcast(r):
     """If r=(x, y, z) is a tuple or list of arrays or scalars, broadcast it to be a
     single array with the list/tuple index corresponding to the first dimension."""
@@ -352,44 +376,15 @@ class RoundCoil(Container):
         # Create arrays (in local coordinates) describing surfaces of the coil for
         # plotting:
         n_theta = 73  # 73 is every 5 degrees
-        # number of points around the cross section: four edges plus bezels, initial and
-        # final points duplicated to close the path:
-        n_crosssec = 9
-        bezel = 0.075 * min((self.R_outer - self.R_inner), self.height)
-
-        # The shape of the cross section, with bezels:
-        zprime = np.array(
-            [
-                self.height / 2 - bezel,
-                self.height / 2,
-                self.height / 2,
-                self.height / 2 - bezel,
-                -self.height / 2 + bezel,
-                -self.height / 2,
-                -self.height / 2,
-                -self.height / 2 + bezel,
-                self.height / 2 - bezel,
-            ]
+        r, zprime, theta = rectanguar_tube(
+            self.R_inner,
+            self.R_outer,
+            -self.height / 2,
+            self.height / 2,
+            -pi,
+            pi,
+            n_theta,
         )
-
-        r = np.array(
-            [
-                self.R_inner,
-                self.R_inner + bezel,
-                self.R_outer - bezel,
-                self.R_outer,
-                self.R_outer,
-                self.R_outer - bezel,
-                self.R_inner + bezel,
-                self.R_inner,
-                self.R_inner,
-            ]
-        )
-
-        theta = np.linspace(-pi, pi, n_theta)
-        theta = np.broadcast_to(theta[:, np.newaxis], (n_theta, n_crosssec))
-        r = np.broadcast_to(r, (n_theta, n_crosssec))
-        zprime = np.broadcast_to(zprime, (n_theta, n_crosssec))
         xprime = r * np.cos(theta)
         yprime = r * np.sin(theta)
         return [(xprime, yprime, zprime)]
@@ -421,46 +416,16 @@ class StraightSegment(Container):
     def local_surfaces(self):
         # Create arrays (in local coordinates) describing surfaces of the segment for
         # plotting:
-        # number of points around the cross section: four edges plus bezels, with final
-        # and initial points duplicated:
-        n_crosssec = 9
-        bezel = 0.075 * min(self.width, self.height)
-
-        # The shape of the cross section, with bezels:
-        xprime = np.array(
-            [
-                -self.width / 2,
-                -self.width / 2 + bezel,
-                self.width / 2 - bezel,
-                self.width / 2,
-                self.width / 2,
-                self.width / 2 - bezel,
-                -self.width / 2 + bezel,
-                -self.width / 2,
-                -self.width / 2,
-            ]
+        xprime, yprime, zprime = rectanguar_tube(
+            -self.width / 2,
+            self.width / 2,
+            -self.height / 2,
+            self.height / 2,
+            0,
+            self.L,
+            2,
         )
-
-        yprime = np.array(
-            [
-                self.height / 2 - bezel,
-                self.height / 2,
-                self.height / 2,
-                self.height / 2 - bezel,
-                -self.height / 2 + bezel,
-                -self.height / 2,
-                -self.height / 2,
-                -self.height / 2 + bezel,
-                self.height / 2 - bezel,
-            ]
-        )
-
-        zprime = np.array([0, self.L])
-        zprime = np.broadcast_to(zprime[:, np.newaxis], (2, n_crosssec))
-        xprime = np.broadcast_to(xprime, (2, n_crosssec))
-        yprime = np.broadcast_to(yprime, (2, n_crosssec))
         return [(xprime, yprime, zprime)]
-
 
 class CurvedSegment(Container):
     def __init__(
@@ -504,44 +469,15 @@ class CurvedSegment(Container):
         # Create arrays (in local coordinates) describing surfaces of the segment for
         # plotting:
         n_theta = int((self.phi_1 - self.phi_0) / (pi / 36)) + 1  # ~every 5 degrees
-        # number of points around the cross section: four edges plus bezels, initial and
-        # final points duplicated to close the path:
-        n_crosssec = 9
-        bezel = 0.075 * min((self.R_outer - self.R_inner), self.height)
-
-        # The shape of the cross section, with bezels:
-        zprime = np.array(
-            [
-                self.height / 2 - bezel,
-                self.height / 2,
-                self.height / 2,
-                self.height / 2 - bezel,
-                -self.height / 2 + bezel,
-                -self.height / 2,
-                -self.height / 2,
-                -self.height / 2 + bezel,
-                self.height / 2 - bezel,
-            ]
+        r, zprime, theta = rectanguar_tube(
+            self.R_inner,
+            self.R_outer,
+            -self.height / 2,
+            self.height / 2,
+            self.phi_0,
+            self.phi_1,
+            n_theta,
         )
-
-        r = np.array(
-            [
-                self.R_inner,
-                self.R_inner + bezel,
-                self.R_outer - bezel,
-                self.R_outer,
-                self.R_outer,
-                self.R_outer - bezel,
-                self.R_inner + bezel,
-                self.R_inner,
-                self.R_inner,
-            ]
-        )
-
-        theta = np.linspace(self.phi_0, self.phi_1, n_theta)
-        theta = np.broadcast_to(theta[:, np.newaxis], (n_theta, n_crosssec))
-        r = np.broadcast_to(r, (n_theta, n_crosssec))
-        zprime = np.broadcast_to(zprime, (n_theta, n_crosssec))
         xprime = r * np.cos(theta)
         yprime = r * np.sin(theta)
         return [(xprime, yprime, zprime)]
