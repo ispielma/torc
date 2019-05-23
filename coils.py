@@ -8,6 +8,16 @@ from mayavi.mlab import mesh, plot3d, show
 
 
 COPPER = (0.722, 0.451, 0.200)
+SILVER = (0.75, 0.75, 0.75)
+
+# units
+mm = 1e-3
+inch = 25.4 * mm
+
+# Unit vectors:
+X = (1, 0, 0)
+Y = (0, 1, 0)
+Z = (0, 0, 1)
 
 
 def get_factors(n):
@@ -223,12 +233,12 @@ class CurrentObject(object):
         return [self.pos_to_lab(pts) for pts in self.local_surfaces()]
 
     def lines(self):
-        return [self.pos_to_lab(pts) for pts in self.local_paths()]
+        return [self.pos_to_lab(pts) for pts in self.local_lines()]
 
     def local_surfaces(self):
         return []
 
-    def local_paths(self):
+    def local_lines(self):
         return []
 
     def show(
@@ -246,7 +256,6 @@ class CurrentObject(object):
                 surf = plot3d(x, y, z, color=color, tube_radius=tube_radius, **kwargs)
                 surf.actor.property.specular = 0.0
                 surf.actor.property.specular_power = 10.0
-        show()
 
 
 class Container(CurrentObject):
@@ -271,7 +280,7 @@ class Container(CurrentObject):
         return surfaces
 
     def lines(self):
-        lines = [self.pos_to_lab(pts) for pts in self.local_paths()]
+        lines = super().lines()
         for child in self.children:
             lines.extend(child.lines())
         return lines
@@ -296,7 +305,7 @@ class Loop(CurrentObject):
         B_yprime = B_rho * np.sin(phi)
         return np.array([B_xprime, B_yprime, B_zprime])
 
-    def local_paths(self):
+    def local_lines(self):
         theta = np.linspace(-pi, pi, 361)
         xprime = self.R * np.cos(theta)
         yprime = self.R * np.sin(theta)
@@ -323,7 +332,7 @@ class Line(CurrentObject):
         B_yprime = B_phi * np.cos(phi)
         return np.array([B_xprime, B_yprime, np.zeros_like(B_xprime)])
 
-    def local_paths(self):
+    def local_lines(self):
         zprime = np.array([0, self.L], dtype=float)
         xprime = yprime = 0
         return [(xprime, yprime, zprime)]
@@ -338,6 +347,9 @@ class Arc(Container):
         normal direction n. This arc is constructed out of n_seg separate line segments,
         so the accuracy can be increased by increasing n_seg."""
         super().__init__(r0=r0, zprime=n, xprime=n_perp, n_turns=n_turns)
+        self.R = R
+        self.phi_0 = phi_0
+        self.phi_1 = phi_1
 
         delta_phi = (phi_1 - phi_0) / n_segs
         for i in range(n_segs):
@@ -351,6 +363,14 @@ class Arc(Container):
             r0_seg = self.pos_to_lab((xprime0, yprime0, 0))
             r1_seg = self.pos_to_lab((xprime1, yprime1, 0))
             self.add(Line(r0_seg, r1_seg, n_turns=n_turns))
+
+    def local_lines(self):
+        n_theta = int((self.phi_1 - self.phi_0) / (pi / 36)) + 1  # ~every 5 degrees
+        theta = np.linspace(self.phi_0, self.phi_1, n_theta)
+        xprime = self.R * np.cos(theta)
+        yprime = self.R * np.sin(theta)
+        zprime = 0
+        return [(xprime, yprime, zprime)]
 
 
 class RoundCoil(Container):
@@ -426,6 +446,7 @@ class StraightSegment(Container):
             2,
         )
         return [(xprime, yprime, zprime)]
+
 
 class CurvedSegment(Container):
     def __init__(
@@ -600,53 +621,21 @@ class CoilPair(Container):
 
 
 if __name__ == '__main__':
-    coil1 = RoundCoil((0, 0, 0), (0, 0, 1), 0.8, 1.2, 0.4, cross_sec_segs=12)
-    coil2 = RoundCoil(
-        (2, 0, 0), (0, 1, 1), 0.8 / 2, 1.2 / 2, 0.4 / 2, cross_sec_segs=12
-    )
-    arc = Arc((0, 1, 0), (0, 0, 1), (1, 0, 0), 1, 0, pi)
-    # arc.show()
-
-    # straight_seg = StraightSegment((0, 0, 0), (0, 0, 1), (1, 0, 0), width=2, height=1)
-    # straight_seg.show(surfaces=True)
-
-    # curved_seg = CurvedSegment((0, 0, 0), (0, 0, 1), (0, 1, 0), 0.8, 1.2, 0.4, 0, pi)
-    # curved_seg.show()
 
     racetrack = RacetrackCoil(
-        (0, 0, 0),
-        (0, 0, 1),
-        (1, 0, 0),
-        width=2,
-        length=4,
-        # width=3,
-        # length=3,
-        height=1,
-        R_inner=1,
-        R_outer=2,
+        r0=(0, 0, 0),
+        n=Z,
+        n_perp=X,
+        width=3 * inch,
+        length=5 * inch,
+        height=1 * inch,
+        R_inner=1 * inch,
+        R_outer=2 * inch,
         n_turns=1,
         arc_segs=12,
         cross_sec_segs=12,
     )
 
-    racetrack.show()
-
-    # container = Container()
-    # container.add(arc)
-    # container.add(coil1)
-    # container.add(coil2)
-    # container.add(straight_seg)
-    # container.show(surfaces=True)
-
-# x = np.linspace(-10, 10, 100)
-# y = 1
-# z = 1
-
-# B = field_of_current_line(x, y, z, 0,0,0,1, 1, 1, 1)
-
-# x, y, z  = np.random.randn(3)
-# x0, y0, z0  = np.random.randn(3)
-# x1, y1, z1  = np.random.randn(3)
-
-# line = Line((x0, y0, z0), (x1, y1, z1))
-# Bx, By, Bz = line.B((x, y, z), I=1)
+    racetrack.show(lines=True, surfaces=False, color=SILVER)
+    racetrack.show(lines=False, surfaces=True, opacity=0.5, color=COPPER)
+    show()
