@@ -61,7 +61,7 @@ def field_of_current_loop(r, z, R, I):
     rprime2 = z ** 2 + (r - R) ** 2
 
     B_r_num = mu_0 * z * I * ((R ** 2 + z ** 2 + r ** 2) / rprime2 * E_k2 - K_k2)
-    B_r_denom = 2 * pi * r * np.sqrt(z ** 2 + (R + r ** 2))
+    B_r_denom = 2 * pi * r * np.sqrt(z ** 2 + (R + r) ** 2)
 
     # Some hoop jumping to set B_r = 0 when r = 0 despite the expression having a
     # division by zero in it in when r = 0:
@@ -74,7 +74,7 @@ def field_of_current_loop(r, z, R, I):
         B_r = B_r_num / B_r_denom
 
     B_z_num = mu_0 * I * ((R ** 2 - z ** 2 - r ** 2) / rprime2 * E_k2 + K_k2)
-    B_z_denom = 2 * pi * np.sqrt(z ** 2 + (R + r ** 2))
+    B_z_denom = 2 * pi * np.sqrt(z ** 2 + (R + r) ** 2)
 
     B_z = B_z_num / B_z_denom
 
@@ -188,8 +188,9 @@ class CurrentObject(object):
                 s = {'x': (1, 0, 0), 'y': (0, 1, 0), 'z': (0, 0, 1)}[s]
             except KeyError:
                 raise KeyError("s must be one of 'x', 'y', 'z' or a vector") from None
-        s = np.array(s) / np.sqrt(np.dot(s, s))
-        r = np.array(r)
+        s = np.array(s, dtype=float) 
+        s /= np.sqrt(np.dot(s, s))
+        r = _broadcast(r)
         rp = ((r.T) + s * ds / 2).T
         rm = ((r.T) - s * ds / 2).T
         return (self.B(rp, I) - self.B(rm, I)) / (2 * ds)
