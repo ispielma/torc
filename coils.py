@@ -19,6 +19,11 @@ X = (1, 0, 0)
 Y = (0, 1, 0)
 Z = (0, 0, 1)
 
+def _formatobj(obj, *attrnames):
+    """Format an object and some attributes for printing"""
+    attrs = ", ".join(f"{name}={getattr(obj,  name, None)}" for name in attrnames)
+    return f"<{obj.__class__.__name__}({attrs}) at {hex(id(obj))}>"
+
 
 def get_factors(n):
     """return all the factors of n"""
@@ -135,7 +140,7 @@ def _cross(a, b):
 
 
 class CurrentObject(object):
-    def __init__(self, r0, zprime, xprime=None, n_turns=1):
+    def __init__(self, r0, zprime, xprime=None, n_turns=1, name=None):
         """A current-carrying object with a coordinate system centred at position r0 =
         (x0, y0, z0), with primary axis pointing along zprime = (zprime_x, zprime_y,
         zprime_z) and secondary axis pointing along xprime = (xprime_x, xprime_y,
@@ -160,6 +165,7 @@ class CurrentObject(object):
         # Rotation matrix from local frame to lab frame:
         self.Q_rot = np.stack([self.xprime, self.yprime, self.zprime], axis=1)
         self.n_turns = n_turns
+        self.name = name
 
     @property
     def x(self):
@@ -257,15 +263,57 @@ class CurrentObject(object):
                 surf.actor.property.specular = 0.0
                 surf.actor.property.specular_power = 10.0
 
+    def __str__(self):
+        return _formatobj(self, 'name')
+
+    def __repr__(self):
+        return self.__str__()
+
 
 class Container(CurrentObject):
-    def __init__(self, r0=(0, 0, 0), zprime=(0, 0, 1), xprime=None, n_turns=1):
-        super().__init__(r0=r0, zprime=zprime, xprime=xprime, n_turns=n_turns)
-        self.children = []
+    def __init__(
+        self,
+        *children,
+        r0=(0, 0, 0),
+        zprime=(0, 0, 1),
+        xprime=None,
+        n_turns=1,
+        name=None
+    ):
+        super().__init__(
+            r0=r0, zprime=zprime, xprime=xprime, n_turns=n_turns, name=name
+        )
+        self.children = list(children)
 
     def add(self, *children):
         for child in children: 
             self.children.append(child)
+
+    def __getitem__(self, key):
+        if isinstance(key, (int, np.integer, slice)):
+            return self.children[key]
+        elif isinstance(key, str):
+            for child in self.children:
+                if child.name == key:
+                    return child
+            raise KeyError(f"no object in container with name {key}")
+        else:
+            msg = ("Can only look up objects in container by integer index or string "
+                   + f"name, not {type(key)} {key}")
+            raise TypeError(msg)
+
+    def __delitem__(self, key):
+        if isinstance(key, (int, np.integer, slice)):
+            del self.children[key]
+        elif isinstance(key, str):
+            for child in self.children:
+                if child.name == key:
+                    self.children.remove(child)
+            raise KeyError(f"no object in container with name {key}")
+        else:
+            msg = ("Can only look up objects in container by integer index or string "
+                   + f"name, not {type(key)} {key}")
+            raise TypeError(msg)
 
     def B(self, r, I):
         Bs = []
@@ -287,10 +335,10 @@ class Container(CurrentObject):
 
 
 class Loop(CurrentObject):
-    def __init__(self, r0, n, R, n_turns=1):
+    def __init__(self, r0, n, R, n_turns=1, name=None):
         """Counterclockwise current loop of radius R, centred at r0 = (x0, y0, z0) with
         normal vector n=(nx, ny, nz)"""
-        super().__init__(r0=r0, zprime=n, n_turns=n_turns)
+        super().__init__(r0=r0, zprime=n, n_turns=n_turns, name=name)
         self.R = R
 
     def B_local(self, rprime, I):
@@ -314,10 +362,11 @@ class Loop(CurrentObject):
 
 
 class Line(CurrentObject):
-    def __init__(self, r0, r1, n_turns=1):
+    def __init__(self, r0, r1, n_turns=1, name=None):
         """Current line from r0 = (x0, y0, z0) to r1 = (x1, y1, z1) with current flowing
         from the former to the latter"""
-        super().__init__(r0=r0, zprime=np.array(r1) - np.array(r0), n_turns=n_turns)
+        zprime = np.array(r1) - np.array(r0)
+        super().__init__(r0=r0, zprime=zprime, n_turns=n_turns, name=name)
         self.L = np.sqrt(((np.array(r1) - np.array(r0)) ** 2).sum())
 
     def B_local(self, rprime, I):
@@ -339,14 +388,14 @@ class Line(CurrentObject):
 
 
 class Arc(Container):
-    def __init__(self, r0, n, n_perp, R, phi_0, phi_1, n_turns=1, n_segs=12):
+    def __init__(self, r0, n, n_perp, R, phi_0, phi_1, n_turns=1, n_segs=12, name=None):
         """Current arc forming part of a loop centred at r0 with normal vector n, from
         angle theta_0 to theta_1 defined with respect to the direction n_perp, which
         should be a direction perpendicular to n. Current is flowing from phi_0 to
         phi_1, which if phi_0 < phi_1, is in the positive sense with respect to the
         normal direction n. This arc is constructed out of n_seg separate line segments,
         so the accuracy can be increased by increasing n_seg."""
-        super().__init__(r0=r0, zprime=n, xprime=n_perp, n_turns=n_turns)
+        super().__init__(r0=r0, zprime=n, xprime=n_perp, n_turns=n_turns, name=name)
         self.R = R
         self.phi_0 = phi_0
         self.phi_1 = phi_1
@@ -374,14 +423,16 @@ class Arc(Container):
 
 
 class RoundCoil(Container):
-    def __init__(self, r0, n, R_inner, R_outer, height, n_turns=1, cross_sec_segs=12):
+    def __init__(
+        self, r0, n, R_inner, R_outer, height, n_turns=1, cross_sec_segs=12, name=None
+    ):
         """A round loop of conductor with rectangular cross section, centred at r0 with
         normal vector n, inner radius R_inner, outer radius R_outer, and the given
         height (in the normal direction). The finite cross-section is approximated using
         a number cross_sec_segs of 1D current loops distributed evenly through the cross
         section. n_turns is an overall multiplier for the current used in field
         calculations"""
-        super().__init__(r0=r0, zprime=n, n_turns=n_turns)
+        super().__init__(r0=r0, zprime=n, n_turns=n_turns, name=name)
         self.R_inner = R_inner
         self.R_outer = R_outer
         self.height = height
@@ -411,7 +462,9 @@ class RoundCoil(Container):
 
 
 class StraightSegment(Container):
-    def __init__(self, r0, r1, n, width, height, n_turns=1, cross_sec_segs=12):
+    def __init__(
+        self, r0, r1, n, width, height, n_turns=1, cross_sec_segs=12, name=None
+    ):
         """A straight segment of conductor, with current flowing in a rectangular cross
         section centred on the line from r0 to r1. A vector n normal to the direction of
         current flow determines which direction the 'width' refers to, the height refers
@@ -421,7 +474,7 @@ class StraightSegment(Container):
         for the current used in field calculations"""
         r0 = np.array(r0, dtype=float)
         r1 = np.array(r1, dtype=float)
-        super().__init__(r0=r0, zprime=r1 - r0, xprime=n, n_turns=n_turns)
+        super().__init__(r0=r0, zprime=r1 - r0, xprime=n, n_turns=n_turns, name=name)
         self.width = width
         self.height = height
         self.L = np.sqrt(((np.array(r1) - np.array(r0)) ** 2).sum())
@@ -462,6 +515,7 @@ class CurvedSegment(Container):
         n_turns=1,
         cross_sec_segs=12,
         arc_segs=12,
+        name=None
     ):
 
         """Rounded segment of conductor with rectangular cross section, forming part of
@@ -473,7 +527,7 @@ class CurvedSegment(Container):
         arcs distributed evenly through the cross section, each itself approximated as
         arc_segs separate current lines. n_turns is an overall multiplier for the
         current used in field calculations"""
-        super().__init__(r0=r0, zprime=n, xprime=n_perp, n_turns=n_turns)
+        super().__init__(r0=r0, zprime=n, xprime=n_perp, n_turns=n_turns, name=name)
         self.R_inner = R_inner
         self.R_outer = R_outer
         self.height = height
@@ -518,6 +572,7 @@ class RacetrackCoil(Container):
         n_turns=1,
         arc_segs=12,
         cross_sec_segs=12,
+        name=None
     ):
         """A rectangular cross section coil comprising four straight segments and four
         90-degree curved segments. The coil is centred at r0 with normal vector n, and
@@ -531,7 +586,7 @@ class RacetrackCoil(Container):
         current lines. n_turns is an overall multiplier for the current used in field
         calculations"""
 
-        super().__init__(r0=r0, zprime=n, xprime=n_perp, n_turns=n_turns)
+        super().__init__(r0=r0, zprime=n, xprime=n_perp, n_turns=n_turns, name=name)
         self.width = width
         self.length = length
         self.height = height
@@ -604,7 +659,8 @@ class CoilPair(Container):
         coil has normal vector n if parity is 1 or the string 'helmholtz', and  has
         normal vector -n if parity is -1 or the string 'anti-helmholtz'. Remaining
         arguments and keyword arguments will be passed to coiltype()."""
-        super().__init__(r0, zprime=n)
+        name = kwargs.pop('name', None)
+        super().__init__(r0=r0, zprime=n, name=name)
         parity = kwargs.pop('parity', 'helmholtz')
         if parity not in [+1, -1]:
             if parity == 'helmholtz':
