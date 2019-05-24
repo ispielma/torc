@@ -13,11 +13,15 @@ SILVER = (0.75, 0.75, 0.75)
 # units
 mm = 1e-3
 inch = 25.4 * mm
+cm = 1e-2
+gauss = 1e-4
+gauss_per_cm = gauss / cm
 
 # Unit vectors:
 X = (1, 0, 0)
 Y = (0, 1, 0)
 Z = (0, 0, 1)
+
 
 def _formatobj(obj, *attrnames):
     """Format an object and some attributes for printing"""
@@ -228,7 +232,7 @@ class CurrentObject(object):
                 s = {'x': (1, 0, 0), 'y': (0, 1, 0), 'z': (0, 0, 1)}[s]
             except KeyError:
                 raise KeyError("s must be one of 'x', 'y', 'z' or a vector") from None
-        s = np.array(s, dtype=float) 
+        s = np.array(s, dtype=float)
         s /= np.sqrt(np.dot(s, s))
         r = _broadcast(r)
         rp = ((r.T) + s * ds / 2).T
@@ -278,7 +282,7 @@ class Container(CurrentObject):
         zprime=(0, 0, 1),
         xprime=None,
         n_turns=1,
-        name=None
+        name=None,
     ):
         super().__init__(
             r0=r0, zprime=zprime, xprime=xprime, n_turns=n_turns, name=name
@@ -286,7 +290,7 @@ class Container(CurrentObject):
         self.children = list(children)
 
     def add(self, *children):
-        for child in children: 
+        for child in children:
             self.children.append(child)
 
     def __getitem__(self, key):
@@ -298,9 +302,9 @@ class Container(CurrentObject):
                     return child
             raise KeyError(f"no object in container with name {key}")
         else:
-            msg = ("Can only look up objects in container by integer index or string "
-                   + f"name, not {type(key)} {key}")
-            raise TypeError(msg)
+            msg = f"""Can only look up objects in container by integer index or string
+                name, not {type(key)} {key}"""
+            raise TypeError(' '.join(msg.split()))
 
     def __delitem__(self, key):
         if isinstance(key, (int, np.integer, slice)):
@@ -311,9 +315,12 @@ class Container(CurrentObject):
                     self.children.remove(child)
             raise KeyError(f"no object in container with name {key}")
         else:
-            msg = ("Can only look up objects in container by integer index or string "
-                   + f"name, not {type(key)} {key}")
-            raise TypeError(msg)
+            msg = f"""Can only look up objects in container by integer index or string
+                name, not {type(key)} {key}"""
+            raise TypeError(' '.join(msg.split()))
+
+    def __len__(self):
+        return len(self.children)
 
     def B(self, r, I):
         Bs = []
@@ -515,7 +522,7 @@ class CurvedSegment(Container):
         n_turns=1,
         cross_sec_segs=12,
         arc_segs=12,
-        name=None
+        name=None,
     ):
 
         """Rounded segment of conductor with rectangular cross section, forming part of
@@ -572,7 +579,7 @@ class RacetrackCoil(Container):
         n_turns=1,
         arc_segs=12,
         cross_sec_segs=12,
-        name=None
+        name=None,
     ):
         """A rectangular cross section coil comprising four straight segments and four
         90-degree curved segments. The coil is centred at r0 with normal vector n, and
