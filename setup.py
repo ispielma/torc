@@ -14,6 +14,8 @@
 import os
 from distutils.core import setup
 
+#TODO: dependencies
+
 __version__ = '0.1.0'
 
 DESCRIPTION = """Field and gradient calculations for magnetic coils"""

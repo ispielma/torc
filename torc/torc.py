@@ -6,21 +6,7 @@ pi = np.pi
 
 from mayavi.mlab import mesh, plot3d, show
 
-
-COPPER = (0.722, 0.451, 0.200)
-SILVER = (0.75, 0.75, 0.75)
-
-# units
-mm = 1e-3
-inch = 25.4 * mm
-cm = 1e-2
-gauss = 1e-4
-gauss_per_cm = gauss / cm
-
-# Unit vectors:
-X = (1, 0, 0)
-Y = (0, 1, 0)
-Z = (0, 0, 1)
+import torc
 
 
 def _formatobj(obj, *attrnames):
@@ -29,7 +15,7 @@ def _formatobj(obj, *attrnames):
     return f"<{obj.__class__.__name__}({attrs}) at {hex(id(obj))}>"
 
 
-def get_factors(n):
+def _get_factors(n):
     """return all the factors of n"""
     factors = set()
     for i in range(1, int(n ** (0.5)) + 1):
@@ -38,7 +24,7 @@ def get_factors(n):
     return factors
 
 
-def segments(x_min, x_max, y_min, y_max, N_segments):
+def _segments(x_min, x_max, y_min, y_max, N_segments):
     """Find the optimal cartesian grid for splitting up a rectangle of spanning x_min to
     x_max and y_min to y_max into N_segments equal sized segments such that each segment
     is as close to square as possible. This is the same as minimising the surface area
@@ -46,7 +32,7 @@ def segments(x_min, x_max, y_min, y_max, N_segments):
     size_x = x_max - x_min
     size_y = y_max - y_min
     lowest_surface_area = None
-    for n_x in get_factors(N_segments):
+    for n_x in _get_factors(N_segments):
         n_y = N_segments // n_x
         surface_area = n_x * size_y + n_y * size_x
         if lowest_surface_area is None or surface_area < lowest_surface_area:
@@ -62,7 +48,7 @@ def segments(x_min, x_max, y_min, y_max, N_segments):
     return midpoints
 
 
-def rectanguar_tube(x0, x1, y0, y1, z0, z1, nz=2, bevel=0.075):
+def _rectangular_tube(x0, x1, y0, y1, z0, z1, nz=2, bevel=0.075):
     """Create 3 2D arrays x, y, z for the points on the surface of a tube with
     rectangular cross section. x0, x1, y0 and y1 are the transverse extent of the
     tube, z0 and z1 describe its longitudinal extent. nz may be specified, this is how
@@ -252,7 +238,7 @@ class CurrentObject(object):
         return []
 
     def show(
-        self, surfaces=True, lines=False, color=COPPER, tube_radius=1e-3, **kwargs
+        self, surfaces=True, lines=False, color=torc.COPPER, tube_radius=1e-3, **kwargs
     ):
         if surfaces:
             surfaces = self.surfaces()
@@ -445,7 +431,7 @@ class RoundCoil(Container):
         self.height = height
 
         n_turns_per_seg = self.n_turns / cross_sec_segs
-        segs = segments(R_inner, R_outer, -height / 2, height / 2, cross_sec_segs)
+        segs = _segments(R_inner, R_outer, -height / 2, height / 2, cross_sec_segs)
         for R, zprime in segs:
             r0_loop = self.pos_to_lab((0, 0, zprime))
             self.add(Loop(r0_loop, n, R, n_turns=n_turns_per_seg))
@@ -454,7 +440,7 @@ class RoundCoil(Container):
         # Create arrays (in local coordinates) describing surfaces of the coil for
         # plotting:
         n_theta = 73  # 73 is every 5 degrees
-        r, zprime, theta = rectanguar_tube(
+        r, zprime, theta = _rectangular_tube(
             self.R_inner,
             self.R_outer,
             -self.height / 2,
@@ -487,7 +473,7 @@ class StraightSegment(Container):
         self.L = np.sqrt(((np.array(r1) - np.array(r0)) ** 2).sum())
 
         n_turns_per_seg = self.n_turns / cross_sec_segs
-        segs = segments(-width / 2, width / 2, -height / 2, height / 2, cross_sec_segs)
+        segs = _segments(-width / 2, width / 2, -height / 2, height / 2, cross_sec_segs)
         for xprime, yprime in segs:
             r0_line = self.pos_to_lab((xprime, yprime, 0))
             r1_line = self.pos_to_lab((xprime, yprime, self.L))
@@ -496,7 +482,7 @@ class StraightSegment(Container):
     def local_surfaces(self):
         # Create arrays (in local coordinates) describing surfaces of the segment for
         # plotting:
-        xprime, yprime, zprime = rectanguar_tube(
+        xprime, yprime, zprime = _rectangular_tube(
             -self.width / 2,
             self.width / 2,
             -self.height / 2,
@@ -542,7 +528,7 @@ class CurvedSegment(Container):
         self.phi_1 = phi_1
 
         n_turns_per_seg = self.n_turns / cross_sec_segs
-        segs = segments(R_inner, R_outer, -height / 2, height / 2, cross_sec_segs)
+        segs = _segments(R_inner, R_outer, -height / 2, height / 2, cross_sec_segs)
         for R, zprime in segs:
             r0_arc = self.pos_to_lab((0, 0, zprime))
             self.add(Arc(r0_arc, n, n_perp, R, phi_0, phi_1, n_turns_per_seg, arc_segs))
@@ -551,7 +537,7 @@ class CurvedSegment(Container):
         # Create arrays (in local coordinates) describing surfaces of the segment for
         # plotting:
         n_theta = int((self.phi_1 - self.phi_0) / (pi / 36)) + 1  # ~every 5 degrees
-        r, zprime, theta = rectanguar_tube(
+        r, zprime, theta = _rectangular_tube(
             self.R_inner,
             self.R_outer,
             -self.height / 2,
@@ -681,24 +667,3 @@ class CoilPair(Container):
             r0_coil = r0 + displacement * unit_vec
             n_coil = self.zprime if parity == +1 else unit_vec
             self.add(coiltype(r0_coil, n_coil, *args, **kwargs))
-
-
-if __name__ == '__main__':
-
-    racetrack = RacetrackCoil(
-        r0=(0, 0, 0),
-        n=Z,
-        n_perp=X,
-        width=3 * inch,
-        length=5 * inch,
-        height=1 * inch,
-        R_inner=1 * inch,
-        R_outer=2 * inch,
-        n_turns=1,
-        arc_segs=12,
-        cross_sec_segs=12,
-    )
-
-    racetrack.show(lines=True, surfaces=False, color=SILVER)
-    racetrack.show(lines=False, surfaces=True, opacity=0.5, color=COPPER)
-    show()
