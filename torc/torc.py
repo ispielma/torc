@@ -9,6 +9,9 @@ from mayavi.mlab import mesh, plot3d, show
 import torc
 
 
+DEFAULT_ARC_SEGS = 12
+DEFAULT_CROSS_SEC_SEGS = 12
+
 def _formatobj(obj, *attrnames):
     """Format an object and some attributes for printing"""
     attrs = ", ".join(f"{name}={getattr(obj,  name, None)}" for name in attrnames)
@@ -206,12 +209,12 @@ class CurrentObject(object):
     def B_local(self, rprime, I):
         return np.zeros_like(rprime)
 
-    def dB(self, r, I, s, ds=1e-6):
+    def dB(self, r, I, s, ds=10e-6):
         """Return a magnetic field derivative at position r=(x, y, z) for a given
         current. The derivative returned is that of the field vector in the direction s,
         which can be 'x', 'y', 'z', or an arbitrary vector whose direction will be used
         (magnitude ignored). Step size ds for numerical differentiation can be given,
-        otherwise defaults to 1um. Derivative is evaluated with a 2nd order central
+        otherwise defaults to 10um. Derivative is evaluated with a 2nd order central
         finite difference."""
         if isinstance(s, str):
             try:
@@ -221,8 +224,8 @@ class CurrentObject(object):
         s = np.array(s, dtype=float)
         s /= np.sqrt(np.dot(s, s))
         r = _broadcast(r)
-        rp = ((r.T) + s * ds / 2).T
-        rm = ((r.T) - s * ds / 2).T
+        rp = ((r.T) + s * ds).T
+        rm = ((r.T) - s * ds).T
         return (self.B(rp, I) - self.B(rm, I)) / (2 * ds)
 
     def surfaces(self):
@@ -381,7 +384,18 @@ class Line(CurrentObject):
 
 
 class Arc(Container):
-    def __init__(self, r0, n, n_perp, R, phi_0, phi_1, n_turns=1, n_segs=12, name=None):
+    def __init__(
+        self,
+        r0,
+        n,
+        n_perp,
+        R,
+        phi_0,
+        phi_1,
+        n_turns=1,
+        n_segs=DEFAULT_ARC_SEGS,
+        name=None,
+    ):
         """Current arc forming part of a loop centred at r0 with normal vector n, from
         angle theta_0 to theta_1 defined with respect to the direction n_perp, which
         should be a direction perpendicular to n. Current is flowing from phi_0 to
@@ -417,7 +431,15 @@ class Arc(Container):
 
 class RoundCoil(Container):
     def __init__(
-        self, r0, n, R_inner, R_outer, height, n_turns=1, cross_sec_segs=12, name=None
+        self,
+        r0,
+        n,
+        R_inner,
+        R_outer,
+        height,
+        n_turns=1,
+        cross_sec_segs=DEFAULT_CROSS_SEC_SEGS,
+        name=None,
     ):
         """A round loop of conductor with rectangular cross section, centred at r0 with
         normal vector n, inner radius R_inner, outer radius R_outer, and the given
@@ -456,7 +478,15 @@ class RoundCoil(Container):
 
 class StraightSegment(Container):
     def __init__(
-        self, r0, r1, n, width, height, n_turns=1, cross_sec_segs=12, name=None
+        self,
+        r0,
+        r1,
+        n,
+        width,
+        height,
+        n_turns=1,
+        cross_sec_segs=DEFAULT_CROSS_SEC_SEGS,
+        name=None,
     ):
         """A straight segment of conductor, with current flowing in a rectangular cross
         section centred on the line from r0 to r1. A vector n normal to the direction of
@@ -506,8 +536,8 @@ class CurvedSegment(Container):
         phi_0,
         phi_1,
         n_turns=1,
-        cross_sec_segs=12,
-        arc_segs=12,
+        cross_sec_segs=DEFAULT_CROSS_SEC_SEGS,
+        arc_segs=DEFAULT_ARC_SEGS,
         name=None,
     ):
 
@@ -563,8 +593,8 @@ class RacetrackCoil(Container):
         R_inner,
         R_outer,
         n_turns=1,
-        arc_segs=12,
-        cross_sec_segs=12,
+        arc_segs=DEFAULT_ARC_SEGS,
+        cross_sec_segs=DEFAULT_CROSS_SEC_SEGS,
         name=None,
     ):
         """A rectangular cross section coil comprising four straight segments and four
@@ -608,11 +638,13 @@ class RacetrackCoil(Container):
             )
 
         # Top and bottom bars:
-        xprime0 = width / 2 - R_inner
-        xprime1 = -xprime0
+        absxprime = width / 2 - R_inner
         absyprime = (length + R_outer - R_inner) / 2
-        if xprime1 != xprime0:  # Exclude this segment if its length is zero:
-            for yprime in [absyprime, -absyprime]:
+        if absxprime != 0:  # Exclude this segment if its length is zero:
+            for sign in [-1, +1]: # bottom, top
+                xprime0 = sign * absxprime
+                xprime1 = -sign * absxprime
+                yprime = sign * absyprime
                 self.add(
                     StraightSegment(
                         self.pos_to_lab((xprime0, yprime, 0)),
@@ -626,11 +658,13 @@ class RacetrackCoil(Container):
                 )
 
         # Left and right bars
-        yprime0 = length / 2 - R_inner
-        yprime1 = -yprime0
+        absyprime = length / 2 - R_inner
         absxprime = (width + R_outer - R_inner) / 2
-        if yprime1 != yprime0:  # Exclude this segment if its length is zero:
-            for xprime in [absxprime, -absxprime]:
+        if absyprime != 0:  # Exclude this segment if its length is zero:
+            for sign in [-1, +1]: # Left, right
+                yprime0 = -sign * absyprime
+                yprime1 = sign * absyprime
+                xprime = sign * absxprime
                 self.add(
                     StraightSegment(
                         self.pos_to_lab((xprime, yprime0, 0)),
