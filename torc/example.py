@@ -1,3 +1,8 @@
+# Path manipulation to ensure the example can run from the project directory:
+import sys
+import pathlib
+path = sys.path.insert(0, str(pathlib.Path(__file__).absolute().parent.parent))
+
 from torc import inch, X, Z, COPPER, SILVER, RacetrackCoil, show 
 racetrack = RacetrackCoil(
     r0=(0, 0, 0),

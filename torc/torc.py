@@ -4,8 +4,6 @@ from scipy.constants import mu_0
 
 pi = np.pi
 
-from mayavi.mlab import mesh, plot3d, show
-
 import torc
 
 
@@ -243,6 +241,7 @@ class CurrentObject(object):
     def show(
         self, surfaces=True, lines=False, color=torc.COPPER, tube_radius=1e-3, **kwargs
     ):
+        from mayavi.mlab import mesh, plot3d
         if surfaces:
             surfaces = self.surfaces()
             for x, y, z in surfaces:
@@ -701,3 +700,11 @@ class CoilPair(Container):
             r0_coil = r0 + displacement * unit_vec
             n_coil = self.zprime if parity == +1 else unit_vec
             self.add(coiltype(r0_coil, n_coil, *args, **kwargs))
+
+
+def show(*args, **kwargs):
+    """Wrapper around mayavi.mlab.show, passing all args and kwargs to it. Provided for
+    conveneience. This function imports mayavi only when called, so that mayavi is not
+    imported even if not being used"""
+    from mayavi.mlab import show
+    show(*args, **kwargs)
