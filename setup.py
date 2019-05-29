@@ -5,11 +5,11 @@
 # If the package is not registered with PyPI yet, do so with:
 #     python setup.py register
 
-# import sys
-# if 'sdist' in sys.argv:
-#     import pypandoc
-#     with open('README', 'w') as f:
-#         f.write(pypandoc.convert('README.md', 'rst', format='markdown'))
+import sys
+if 'sdist' in sys.argv:
+    import pypandoc
+    with open('README', 'w') as f:
+        f.write(pypandoc.convert('README.md', 'rst', format='markdown'))
 
 import os
 from distutils.core import setup
