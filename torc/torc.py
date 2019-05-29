@@ -310,6 +310,9 @@ class Container(CurrentObject):
     def __len__(self):
         return len(self.children)
 
+    def index(self, item):
+        return self.children.index(item)
+
     def B(self, r, I):
         Bs = []
         for child in self.children:
