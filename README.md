@@ -1,15 +1,18 @@
 # torc
 
 Torc is a Python library for computing magnetic fields resulting from magnetic coils
-such as loops, lines, round coils and racetrack coils, positioned and oriented
-arbitrarily in space.
+such as loops, lines, round coils and racetrack coils of rectangular cross section,
+positioned and oriented arbitrarily in space.
 
 Documentation and examples yet to come, but there is one example file you can run:
-```python
+
+```bash
 python -m torc.example
 ```
+to display an arrangement of coils that represents the magnetic transport assembly for
+the cold atom experiment in the RbChip lab in the Spielman group at NIST:
 
-to display a simple racetrack coil
+![rb_chip_coils.png](rb_chip_coils.png)
 
 ## Requirements
 
