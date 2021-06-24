@@ -12,7 +12,11 @@ if 'sdist' in sys.argv:
         f.write(pypandoc.convert('README.md', 'rst', format='markdown'))
 
 import os
-from distutils.core import setup
+
+try:
+    from setuptools import setup
+except ImportError:
+    from distutils.core import setup
 
 #TODO: dependencies
 
